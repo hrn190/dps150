@@ -146,6 +146,14 @@ input[type=text],input[type=password]{font:13px var(--mono);height:32px;color:va
 .testbar .testmeta{font-size:12.5px;color:var(--muted);white-space:nowrap}
 .testbar input{flex:1 1 320px;font:14px "Segoe UI",system-ui,sans-serif;height:34px}
 .testbar .tag{font-size:12.5px}
+.testbar.sw label{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.testbar.sw input{flex:0 0 auto;width:66px;height:30px;font:13px var(--mono);padding:0 8px}
+.testbar.sw input[type=text]{width:92px}
+.sweepPrompt{display:none;text-align:center;padding:18px 14px;border-radius:8px;margin-bottom:12px;background:var(--ok-bg);color:var(--ok);border:2px solid var(--ok)}
+.sweepPrompt.show{display:block}
+.sweepPrompt .big{font:800 44px/1.1 "Segoe UI",system-ui,sans-serif;letter-spacing:.04em}
+.sweepPrompt .small{font:600 16px var(--mono);margin-top:6px}
+.sweepPrompt.wait{background:var(--panel2);color:var(--muted);border-color:var(--line)}
 tr.cur td{font-weight:600}
 #testTbl th:nth-child(2){text-align:left}
 td.note{text-align:left;white-space:normal;min-width:180px;max-width:360px;font-family:"Segoe UI",system-ui,sans-serif}
@@ -191,6 +199,20 @@ td.note{text-align:left;white-space:normal;min-width:180px;max-width:360px;font-
     <input type="text" id="testNote" maxlength="300" placeholder="Bu testte neyi ölçüyorsunuz? Örn. kağıt boyu 3, yeni piller, 6 V" spellcheck="false">
     <button id="btnNewTest" title="Sayaçları ve özetleri sıfırlayıp yeni test başlatır. Önceki testin verisi Testler tablosunda kalır.">Yeni test · sıfırla</button>
   </section>
+
+  <section class="panel testbar sw">
+    <span class="tag">Gerilim taraması</span>
+    <label>Başlangıç <input type="number" id="swFrom" value="6.4" step="0.1" min="0.5" max="30"> V</label>
+    <label>Bitiş <input type="number" id="swTo" value="3.2" step="0.1" min="0.5" max="30"> V</label>
+    <label>Adım <input type="number" id="swStep" value="0.4" step="0.1" min="0.05" max="10"> V</label>
+    <label>Çekme / adım <input type="number" id="swN" value="5" step="1" min="1" max="20"></label>
+    <label>Kağıt boyu <input type="text" id="swLen" value="25 cm" spellcheck="false"></label>
+    <button class="primary" id="swStart">Taramayı başlat</button>
+    <button id="swFail" disabled title="Bu gerilimde dispenser kağıt vermiyor veya resetleniyorsa basın; tarama burada biter.">Bu gerilimde çalışmıyor</button>
+    <button id="swStop" disabled>Durdur</button>
+    <span class="testmeta" id="swStatus">Her gerilim ayrı bir test olarak kaydedilir.</span>
+  </section>
+  <div class="sweepPrompt" id="swPrompt"><div class="big" id="swBig">EL UZAT</div><div class="small" id="swSmall"></div></div>
 
   <div class="meters">
     <div class="meter" style="--c:var(--v)">
@@ -661,7 +683,10 @@ function releaseWake(){ try{wakeLock&&wakeLock.release()}catch(_){} wakeLock=nul
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") acquireWake(); });
 window.addEventListener("beforeunload",e=>{ if(recording&&!SRV){ flush(); e.preventDefault(); e.returnValue=""; } });
 
-async function rebuild(){
+// aynı anda iki yeniden hesaplama çakışmasın diye sıraya alınır
+let rebuildChain=Promise.resolve();
+function rebuild(){ rebuildChain=rebuildChain.then(doRebuild,doRebuild); return rebuildChain; }
+async function doRebuild(){
   await flush();
   rebuilding=[];
   const A=tests.map(()=>new Agg(manualA())), r=[], cut=Date.now()/1000-3700;
@@ -844,14 +869,14 @@ async function loadTests(){
 }
 function testSummary(a){
   const E=a.events,n=E.length,t=a.tot; let sd=0,sp=0,sq=0,mx=0; for(const e of E){sd+=e.dur;sp+=e.peak;sq+=e.q;if(e.peak>mx)mx=e.peak}
-  return {first:a.first,last:a.last,dur:t.t,n,avgDur:n?sd/n:NaN,avgPk:n?sp/n*1000:NaN,maxPk:n?mx*1000:NaN,perRun:n?sq/n/3.6:NaN,avgI:t.t?t.q/t.t*1000:NaN,q:t.q/3.6};
+  return {first:a.first,last:a.last,dur:t.t,n,avgDur:n?sd/n:NaN,avgPk:n?sp/n*1000:NaN,maxPk:n?mx*1000:NaN,perRun:n?sq/n/3.6:NaN,avgI:t.t?t.q/t.t*1000:NaN,q:t.q/3.6,avgV:t.t?t.vt/t.t:NaN,vmin:n?Math.min(...E.map(e=>e.vmin)):NaN};
 }
 function testRows(){
   const f=(x,d)=>Number.isFinite(x)?x.toFixed(d):"–";
   return tests.map((T_,k)=>{
     const a=k===tests.length-1?agg:aggs[k]; const S=a?testSummary(a):null;
     return {k,cur:k===tests.length-1,note:T_.note||"",start:S&&S.first?fmtTime(S.first):(T_.start?fmtTime(T_.start):"–"),
-      cells:S?[fmtDur(S.dur),S.n,f(S.avgDur,2),f(S.avgPk,0),f(S.maxPk,0),f(S.perRun,4),f(S.avgI,3),f(S.q,3)]:["–",0,"–","–","–","–","–","–"]};
+      cells:S?[fmtDur(S.dur),f(S.avgV,2),S.n,f(S.avgDur,2),f(S.avgPk,0),f(S.maxPk,0),f(S.vmin,2),f(S.perRun,4),f(S.avgI,3),f(S.q,3)]:["–","–",0,"–","–","–","–","–","–","–"]};
   });
 }
 const esc=x=>String(x).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -861,7 +886,7 @@ function renderTests(){
   const a0=agg.first??(cur.start||null);
   $("testMeta").textContent=a0?`başlangıç ${fmtTime(a0)}${agg.n?" · "+fmtDur(agg.tot.t):""}`:"henüz ölçüm yok";
   const inp=$("testNote"); if(document.activeElement!==inp&&inp.value!==(cur.note||"")) inp.value=cur.note||"";
-  const head=["No","Not","Başlangıç","Ölçülen süre","Motor çalışması","Ort. süre (s)","Ort. tepe (mA)","Maks. tepe (mA)","mAh / çalışma","Ort. akım (mA)","Toplam yük (mAh)"];
+  const head=["No","Not","Başlangıç","Ölçülen süre","Ort. gerilim (V)","Motor çalışması","Ort. süre (s)","Ort. tepe (mA)","Maks. tepe (mA)","Çalışırken min. V","mAh / çalışma","Ort. akım (mA)","Toplam yük (mAh)"];
   let h="<thead><tr>"+head.map(x=>`<th>${x}</th>`).join("")+"</tr></thead><tbody>";
   for(const r of testRows().reverse())
     h+=`<tr${r.cur?' class="cur"':""}><td>${r.k+1}${r.cur?" ●":""}</td><td class="note">${esc(r.note)||'<span style="color:var(--muted)">not yok</span>'}</td><td>${r.start}</td>`+r.cells.map(c=>`<td>${c}</td>`).join("")+"</tr>";
@@ -870,19 +895,80 @@ function renderTests(){
 let noteTimer=null;
 $("testNote").addEventListener("input",()=>{ tests[tests.length-1].note=$("testNote").value; clearTimeout(noteTimer); noteTimer=setTimeout(saveTests,800); });
 $("testNote").addEventListener("change",()=>{ clearTimeout(noteTimer); tests[tests.length-1].note=$("testNote").value.trim(); saveTests(); });
+async function newTest(note){
+  if(agg.cur) agg.closeEvent();
+  if(SRV){ const j=await srvPost("api/tests/new",{note}); tests=j.tests; }
+  else { tests.push({start:Date.now()/1000,note}); await setMeta("tests",tests); }
+  await rebuild(); render(true);
+}
 $("btnNewTest").onclick=async()=>{
   const btn=$("btnNewTest"); btn.disabled=true;
   try{
     const note=tests[tests.length-1].note||"";
-    if(SRV){ const j=await srvPost("api/tests/new",{note}); tests=j.tests; }
-    else { tests.push({start:Date.now()/1000,note}); await setMeta("tests",tests); }
-    await rebuild(); render(true);
+    await newTest(note);
     const inp=$("testNote"); inp.value=note; inp.focus(); inp.select();
   }catch(e){ alert("Yeni test başlatılamadı: "+e.message); }
   finally{ btn.disabled=false; }
 };
+// ------------------------------------------------------------ gerilim taraması
+const SW={run:false,fail:false};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const fmtV=v=>v.toFixed(2).replace(".",",");
+let audioCtx=null;
+function cue(text){
+  try{ audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)(); const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.frequency.value=880; g.gain.value=0.08; o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+0.15); }catch(_){}
+  try{ if(text&&"speechSynthesis" in window){ const u=new SpeechSynthesisUtterance(text); u.lang="tr-TR"; speechSynthesis.cancel(); speechSynthesis.speak(u); } }catch(_){}
+}
+function swPrompt(big,small,wait){ const p=$("swPrompt"); p.className="sweepPrompt show"+(wait?" wait":""); $("swBig").textContent=big; $("swSmall").textContent=small||""; }
+function swUi(){ $("swStart").disabled=SW.run; $("swStop").disabled=!SW.run; $("swFail").disabled=!SW.run;
+  for(const id of ["swFrom","swTo","swStep","swN","swLen"]) $(id).disabled=SW.run; }
+$("swStop").onclick=()=>{ SW.run=false; };
+$("swFail").onclick=()=>{ SW.fail=true; };
+$("swStart").onclick=async()=>{
+  if(!connected()){ alert("Önce DPS-150'ye bağlanıp kaydı başlatın."); return; }
+  const v0=parseFloat($("swFrom").value), v1=parseFloat($("swTo").value), step=parseFloat($("swStep").value), n=Math.round(+$("swN").value), len=$("swLen").value.trim();
+  if(!(v0>0&&v0<=30&&v1>0&&v1<=30&&step>0&&n>=1&&n<=20)){ alert("Tarama değerlerini kontrol edin (0–30 V, adım > 0, çekme 1–20)."); return; }
+  const volts=[]; const dir=v1<=v0?-1:1; for(let v=v0; dir<0? v>=v1-1e-6 : v<=v1+1e-6; v+=dir*step) volts.push(Math.round(v*100)/100);
+  const vmax=Math.max(...volts);
+  if(st.settings&&st.settings.ovp<vmax+0.1){ alert(`OVP ${fmtV(st.settings.ovp)} V, taramanın en yüksek gerilimi ${fmtV(vmax)} V. Önce OVP'yi yükseltin (gerilim göstergesinin altındaki OVP değerine tıklayın).`); return; }
+  if(!confirm(`DPS-150 çıkışı sırasıyla ${volts.map(fmtV).join(" · ")} V yapılacak; her gerilimde ${n} çekme beklenecek. Dispenser bağlı olmalı. Başlatılsın mı?`)) return;
+  const restore=st.settings?st.settings.vset:6;
+  SW.run=true; SW.fail=false; swUi(); cue("");
+  let failedAt=null, done=0;
+  try{
+    if(st.outOn===false){ await send(packet(CMD_SET,T.CLOSED,1)); await sleep(800); }
+    for(const V of volts){
+      if(!SW.run) break;
+      swPrompt("BEKLE",`${fmtV(V)} V ayarlanıyor…`,true);
+      await send(packet(CMD_SET,0xC1,fbytes(V))); await send(packet(CMD_GET,T.ALL,0));
+      await sleep(2500);
+      await newTest(`${fmtV(V)} V${len?" · "+len:""} · tarama`);
+      $("swStatus").textContent=`Adım ${volts.indexOf(V)+1}/${volts.length}: ${fmtV(V)} V`;
+      let last=-1; const t0=Date.now(), lastRun={t:Date.now()};
+      while(SW.run&&!SW.fail){
+        const c=agg.events.length;
+        if(c!==last){ last=c; lastRun.t=Date.now();
+          if(c<n){ swPrompt("EL UZAT",`${fmtV(V)} V · çekme ${c+1}/${n}`); cue("el uzat"); } }
+        if(c>=n&&!agg.cur) break;
+        if(!agg.cur&&Date.now()-lastRun.t>20000&&c<n){ lastRun.t=Date.now(); cue("el uzat"); }
+        await sleep(250);
+      }
+      if(SW.fail){ failedAt=V; const T_=tests[tests.length-1]; T_.note=(T_.note||"")+" · ÇALIŞMADI"; await saveTests(); break; }
+      if(SW.run) done++;
+    }
+  }catch(e){ alert("Tarama durdu: "+e.message); }
+  finally{
+    try{ await send(packet(CMD_SET,0xC1,fbytes(restore))); await send(packet(CMD_GET,T.ALL,0)); }catch(_){}
+    const msg=failedAt!=null?`Tarama bitti: ${fmtV(failedAt)} V'ta çalışmadı. Gerilim ${fmtV(restore)} V'a geri alındı.`:SW.run?`Tarama tamamlandı (${done} adım). Gerilim ${fmtV(restore)} V'a geri alındı.`:`Tarama durduruldu. Gerilim ${fmtV(restore)} V'a geri alındı.`;
+    SW.run=false; SW.fail=false; swUi(); $("swStatus").textContent=msg;
+    swPrompt("BİTTİ",msg,true); cue("tarama bitti"); setTimeout(()=>$("swPrompt").className="sweepPrompt",15000);
+    render(true);
+  }
+};
+
 $("btnCsvTests").onclick=()=>{
-  const rows=[["no","not","baslangic","olculen_sure","motor_calismasi","ort_sure_s","ort_tepe_mA","maks_tepe_mA","mAh_calisma","ort_akim_mA","toplam_yuk_mAh"]];
+  const rows=[["no","not","baslangic","olculen_sure","ort_gerilim_V","motor_calismasi","ort_sure_s","ort_tepe_mA","maks_tepe_mA","calisirken_min_V","mAh_calisma","ort_akim_mA","toplam_yuk_mAh"]];
   for(const r of testRows()) rows.push([r.k+1,`"${r.note.replace(/"/g,'""')}"`,r.start,...r.cells]);
   download(`dps150_testler_${stamp()}.csv`,[rows.map(r=>r.join(";")).join("\r\n")]);
 };
@@ -1227,7 +1313,7 @@ async function ghSync(reason){
     files.push({path:`${base}/motor.csv`,text:motorRows().map(r=>r.join(";")).join("\r\n")});
     files.push({path:`${base}/ozet.json`,text:JSON.stringify(summaryObj(),null,2)});
     files.push({path:`${base}/testler.json`,text:JSON.stringify(tests,null,2)});
-    { const rows=[["no","not","baslangic","olculen_sure","motor_calismasi","ort_sure_s","ort_tepe_mA","maks_tepe_mA","mAh_calisma","ort_akim_mA","toplam_yuk_mAh"]];
+    { const rows=[["no","not","baslangic","olculen_sure","ort_gerilim_V","motor_calismasi","ort_sure_s","ort_tepe_mA","maks_tepe_mA","calisirken_min_V","mAh_calisma","ort_akim_mA","toplam_yuk_mAh"]];
       for(const r of testRows()) rows.push([r.k+1,`"${r.note.replace(/"/g,'""')}"`,r.start,...r.cells]);
       files.push({path:`${base}/testler.csv`,text:rows.map(r=>r.join(";")).join("\r\n")}); }
     const c=await ghCommit(files,`${name}: ${fmtTime(maxT)} itibarıyla ölçümler (${reason})`,(i,n)=>ghStatus(`Gönderiliyor… ${i}/${n} dosya`));
