@@ -169,6 +169,7 @@ input[type=text],input[type=password]{font:13px var(--mono);height:32px;color:va
     <span class="chip">Giriş <b id="cVin">–</b></span>
     <span class="chip">Sıcaklık <b id="cTemp">–</b></span>
     <span class="chip"><span class="dot" id="dot"></span><span id="status">Bağlı değil</span></span>
+    <select id="srvPort" class="hidden" title="DPS-150'nin sunucu bilgisayarındaki portu"></select>
     <button class="primary" id="btnConnect">Bağlan ve kaydet</button>
     <button id="btnStop" disabled>Durdur</button>
   </div>
@@ -499,10 +500,11 @@ let port=null, reader=null, writer=null, writeChain=Promise.resolve(), parser=ne
 let recording=false, recStart=0, recLimit=0, lastFrame=0, lastPoll=0, polled=0, frames=0;
 const st={vin:NaN,temp:NaN,mode:-1,prot:0,outOn:null,info:{},settings:null,last:null};
 let wakeLock=null, dbgLines=[];
+let SRV=null;   // sunucu modunda sunucunun son durumu (null = tarayıcıdan doğrudan Web Serial)
 
-function sample(v,i,p){
-  const t=Date.now()/1000;
-  if(t-lastFrame<0.01) return;
+function sample(v,i,p,tIn){
+  const t=tIn??Date.now()/1000;
+  if(tIn===undefined&&t-lastFrame<0.01) return;
   lastFrame=t;
   pending.push(t,v,i,p,st.vin,st.temp,st.mode,st.prot);
   if(rebuilding) rebuilding.push([t,v,i,p]); else agg.add(t,v,i,p);
@@ -518,6 +520,12 @@ setInterval(flush,5000);
 
 // ============================================================ seri port
 function send(pkt){
+  if(SRV){
+    const hex=[...pkt].map(b=>pad(b.toString(16))).join("");
+    writeChain=writeChain.then(async()=>{const r=await fetch("api/raw",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({hex})});
+      if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||r.status)}}).catch(e=>console.warn("komut gönderilemedi",e));
+    return writeChain;
+  }
   writeChain=writeChain.then(async()=>{ if(writer){ await writer.write(pkt); await new Promise(r=>setTimeout(r,50)); } }).catch(()=>{});
   return writeChain;
 }
@@ -592,6 +600,7 @@ if("serial" in navigator){
 
 // ============================================================ başlat / durdur
 async function startRec(){
+  if(SRV) return srvStart();
   if(!("serial" in navigator)) return;
   let p;
   try{ p=await navigator.serial.requestPort(); }catch(_){ return; }
@@ -608,6 +617,7 @@ async function startRec(){
 }
 async function stopRec(msg){
   if(!recording) return;
+  if(SRV){ try{ await srvPost("api/stop"); }catch(e){ setStatus("err",e.message); return; } }
   recording=false; await cleanupPort(true); await flush(); if(agg.cur) agg.closeEvent();
   if(GH.cfg.auto>0&&GH.token&&GH.cfg.repo) setTimeout(()=>ghSync("kayıt durduruldu"),300);
   setStatus("", msg||"Kayıt durduruldu");
@@ -615,14 +625,15 @@ async function stopRec(msg){
 }
 function updateButtons(){
   $("btnConnect").disabled=recording; $("btnStop").disabled=!recording;
-  $("btnClear").disabled=recording; $("fileImport").disabled=recording; if($("ghOpen")) $("ghOpen").disabled=recording; $("hwflow").disabled=recording;
+  $("btnClear").disabled=recording; $("fileImport").disabled=recording||!!SRV; if($("ghOpen")) $("ghOpen").disabled=recording||!!SRV; $("hwflow").disabled=recording;
+  if(SRV){ $("btnConnect").textContent=agg.n?"Kayda devam et":"Kaydı başlat"; $("srvPort").disabled=recording; return; }
   $("btnConnect").textContent=resumeMode&&agg.n?"Bağlan ve devam et":"Bağlan ve kaydet";
 }
 function setStatus(cls,text){ $("dot").className="dot"+(cls?" "+cls:""); $("status").textContent=text; }
 async function acquireWake(){ try{ if("wakeLock" in navigator && document.visibilityState==="visible" && recording) wakeLock=await navigator.wakeLock.request("screen"); }catch(_){} }
 function releaseWake(){ try{wakeLock&&wakeLock.release()}catch(_){} wakeLock=null; }
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") acquireWake(); });
-window.addEventListener("beforeunload",e=>{ if(recording){ flush(); e.preventDefault(); e.returnValue=""; } });
+window.addEventListener("beforeunload",e=>{ if(recording&&!SRV){ flush(); e.preventDefault(); e.returnValue=""; } });
 
 async function rebuild(){
   await flush();
@@ -653,7 +664,7 @@ function render(force){
   html("mV",L?L.v.toFixed(3):"–","V");
   const [iv,iu]=fmtI(L?L.i:NaN); html("mI",iv,iu);
   const [pv,pu]=fmtP(L?L.p:NaN); html("mP",pv,pu);
-  const canSet=!!(port&&writer&&S), cls=canSet?"set":"set dis";
+  const canSet=!!(connected()&&S), cls=canSet?"set":"set dis";
   const sv=k=>S?S[k].toFixed(SETT[k].dig)+" "+SETT[k].unit:"–";
   setHTML("mVsub",`<span class="${cls}" data-k="vset">Ayar ${sv("vset")}</span> · <span class="${cls}" data-k="ovp">OVP ${sv("ovp")}</span>`);
   setHTML("mIsub",`<span class="${cls}" data-k="iset">Sınır ${sv("iset")}</span> · <span class="${cls}" data-k="ocp">OCP ${sv("ocp")}</span>`);
@@ -663,7 +674,7 @@ function render(force){
   $("cVin").textContent=Number.isFinite(st.vin)?st.vin.toFixed(2)+" V":"–";
   $("cTemp").textContent=Number.isFinite(st.temp)?st.temp.toFixed(1)+" °C":"–";
 
-  const live=recording&&port;
+  const live=recording&&connected();
   tag("tMode",st.mode===0?"CC":st.mode===1?"CV":"–",live?(st.mode===0?"warn":st.mode===1?"ok":""):"");
   tag("tProt",live?(st.prot?(PROT_NAMES[st.prot]||st.prot):"OK"):"–",live?(st.prot?"bad":"ok"):"");
   tag("tOut",live&&st.outOn!==null?(st.outOn?"Açık":"Kapalı"):"–",live&&st.outOn!==null?(st.outOn?"ok":"warn"):"");
@@ -677,7 +688,8 @@ function render(force){
     if(st.prot){al.className="banner bad show";al.textContent=`${PROT_NAMES[st.prot]||st.prot} koruması devrede: çıkış kesilmiş olabilir, bu süredeki ölçüm geçersizdir. Cihazdaki koruma ayarını kontrol edin.`}
     else if(st.mode===0&&L&&L.i>0.001){al.className="banner warn show";al.textContent="Cihaz CC moduna geçti (akım sınırına dayandı). Gerilim düşmüş olabilir; akım sınırını yükseltin."}
     else if(st.outOn===false){al.className="banner warn show";al.textContent="DPS-150 çıkışı kapalı. Sağdaki ÇIKIŞ düğmesiyle açabilirsiniz."}
-    else if(port && Date.now()/1000-recStart>5 && frames===0){al.className="banner warn show";al.textContent="Cihazdan veri gelmiyor. Durdurup 'Donanım akış kontrolü' ayarını değiştirerek yeniden bağlanın."}
+    else if(SRV&&!SRV.connected&&Date.now()/1000-recStart>3){al.className="banner warn show";al.textContent=`Sunucu DPS-150'ye bağlanamıyor (${SRV.port||"port yok"})${SRV.error?": "+SRV.error:""}. Kablo ve port seçimini kontrol edin; sunucu birkaç saniyede bir yeniden deniyor.`}
+    else if((SRV?SRV.connected&&SRV.frames===0:port&&frames===0) && Date.now()/1000-recStart>5){al.className="banner warn show";al.textContent="Cihazdan veri gelmiyor. Durdurup 'Donanım akış kontrolü' ayarını değiştirerek yeniden bağlanın."}
   }
 
   const t=agg.tot, med=agg.median();
@@ -700,7 +712,7 @@ setInterval(()=>render(false),1000);
 
 // ------------------------------------------------------------ cihaz kontrolü
 let outBusy=false;
-const connected=()=>!!(port&&writer);
+function connected(){ return SRV?!!SRV.connected:!!(port&&writer); }
 $("btnOut").onclick=async()=>{
   if(!connected()||st.outOn===null) return;
   const on=!st.outOn;
@@ -986,7 +998,10 @@ $("btnCsvRaw").onclick=async()=>{
   download(`dps150_ham_${stamp()}.csv`,parts);
 };
 $("btnClear").onclick=async()=>{
-  if(!confirm("Tarayıcıdaki kayıt kalıcı olarak silinecek. Önce ham veriyi CSV olarak indirdiğinizden emin olun. Silinsin mi?")) return;
+  if(SRV){
+    if(!confirm("Sunucudaki kayıt silinecek (dosya sunucuda arsiv/ klasörüne taşınır) ve bu kayda bağlı tüm sayfalar sıfırlanacak. Devam edilsin mi?")) return;
+    try{ await srvPost("api/clear"); }catch(e){ alert(e.message); return; }
+  }else if(!confirm("Tarayıcıdaki kayıt kalıcı olarak silinecek. Önce ham veriyi CSV olarak indirdiğinizden emin olun. Silinsin mi?")) return;
   await clearDB(); agg=new Agg(manualA()); ring=[]; st.last=null; resumeMode=false;
   $("resume").classList.remove("show"); updateButtons(); render(true);
 };
@@ -1198,12 +1213,101 @@ setInterval(()=>{
   if(GH.cfg.auto>0&&GH.token&&GH.cfg.repo&&recording&&!GH.busy&&Date.now()/1000-GH.lastTry>=GH.cfg.auto) ghSync("otomatik");
 },30000);
 
+// ============================================================ sunucu modu (LAN)
+async function srvPost(path,body){
+  const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||("Sunucu hatası "+r.status));
+  srvApply(j); return j;
+}
+async function srvPorts(){
+  try{
+    const j=await (await fetch("api/ports",{cache:"no-store"})).json();
+    const sel=$("srvPort"), cur=sel.value||SRV?.port||(()=>{try{return localStorage.getItem("dps150_srv_port")}catch(_){return null}})();
+    sel.innerHTML=(j.ports||[]).map(p=>`<option value="${p.device}">${p.device}${p.description&&p.description!=="n/a"?" · "+p.description:""}</option>`).join("")||'<option value="">Port bulunamadı</option>';
+    if(cur&&[...sel.options].some(o=>o.value===cur)) sel.value=cur;
+  }catch(e){ console.warn(e); }
+}
+$("srvPort").addEventListener("focus",srvPorts);
+$("srvPort").addEventListener("change",()=>{try{localStorage.setItem("dps150_srv_port",$("srvPort").value)}catch(_){}});
+async function srvStart(){
+  const port=$("srvPort").value;
+  if(!port){ setStatus("err","Sunucuda port seçilmedi. DPS-150'yi sunucu bilgisayarına bağlayıp listeden seçin."); return; }
+  try{ await srvPost("api/start",{port,duration:+$("dur").value,hwflow:$("hwflow").checked}); $("resume").classList.remove("show"); }
+  catch(e){ setStatus("err",e.message); }
+}
+function srvApply(j){
+  if(!j||!j.server) return;
+  const wasFirst=SRV?.first;
+  SRV=j; recording=!!j.recording; recStart=j.rec_start||recStart;
+  const S=j.st||{};
+  st.outOn=S.out_on??null; st.settings=S.settings||st.settings; st.prot=S.prot||0; st.mode=S.mode??-1;
+  if(S.vin!=null) st.vin=S.vin; if(S.temp!=null) st.temp=S.temp;
+  const I=S.info||{}; if(I.model) st.info[T.MODEL]=I.model; if(I.hw) st.info[T.HW]=I.hw; if(I.fw) st.info[T.FW]=I.fw;
+  if(j.hwflow!==undefined&&recording) $("hwflow").checked=!!j.hwflow;
+  const host=location.host;
+  if(recording) setStatus(j.connected?"on":"err", j.connected?`Sunucu ${host} · kayıt sürüyor`:`Sunucu ${host} · cihaz bekleniyor`);
+  else setStatus("",`Sunucu ${host} · beklemede`);
+  if(recording&&j.port) $("srvPort").value=j.port;
+  if(recording) $("resume").classList.remove("show");
+  updateButtons();
+  // sunucudaki kayıt başka bir sayfadan silindiyse yeniden eşitle
+  if(srvReady&&wasFirst!==undefined&&wasFirst!==j.first) srvResync();
+}
+let srvReady=false, srvBuf=[], srvSyncing=false;
+function srvIngest(r){
+  st.vin=r[4]; st.temp=r[5]; st.mode=r[6]; st.prot=r[7];
+  sample(r[1],r[2],r[3],r[0]); lastFrame=r[0];
+}
+async function srvResync(){
+  if(srvSyncing) return; srvSyncing=true; srvReady=false;
+  try{
+    await flush();
+    const info=await countRows();
+    const j=await (await fetch("api/info",{cache:"no-store"})).json(); SRV=j;
+    let since=0;
+    if(info.n&&j.first!=null&&Math.abs(info.first-j.first)<0.001&&info.last<=j.last+0.001) since=info.last;
+    else if(info.n){ await clearDB(); agg=new Agg(manualA()); ring=[]; st.last=null; }
+    if(j.n){
+      setStatus("on","Sunucudan kayıt alınıyor…");
+      const buf=await (await fetch("api/history?since="+since,{cache:"no-store"})).arrayBuffer();
+      const a=new Float64Array(buf), step=ROW*20000;
+      for(let k=0;k<a.length;k+=step) await putChunk(a.slice(k,k+step));
+    }
+    await rebuild();
+    const last=agg.last??0;
+    for(const r of srvBuf) if(r[0]>last) srvIngest(r);
+    srvBuf=[]; lastFrame=agg.last??0;
+    srvApply(j);
+    const r=$("resume");
+    if(agg.n){ r.classList.add("show"); r.innerHTML=`Sunucudaki kayıt: <b>${agg.n.toLocaleString("tr-TR")}</b> örnek, ${fmtTime(agg.first)} – ${fmtTime(agg.last)}. Kayıt sunucuda sürer; bu sayfayı kapatmak kaydı durdurmaz.`; }
+    else r.classList.remove("show");
+    render(true);
+  }catch(e){ console.warn(e); setStatus("err","Sunucuyla eşitlenemedi: "+e.message); }
+  finally{ srvReady=true; srvSyncing=false; }
+}
+function srvStream(){
+  const es=new EventSource("api/stream");
+  es.addEventListener("open",()=>srvResync());
+  es.addEventListener("s",e=>{ const r=e.data.split(",").map(Number); if(srvReady) srvIngest(r); else srvBuf.push(r); });
+  es.addEventListener("state",e=>{ try{ srvApply(JSON.parse(e.data)); }catch(_){} });
+  es.addEventListener("error",()=>{ srvReady=false; setStatus("err",`Sunucuya ulaşılamıyor (${location.host}), yeniden deneniyor…`); });
+}
+
 // ============================================================ açılış
 (async()=>{
-  if(!("serial" in navigator)){ $("nosupport").classList.add("show"); $("btnConnect").disabled=true; }
+  if(location.protocol.startsWith("http")&&!location.hostname.endsWith("github.io")){
+    try{ const r=await fetch("api/info",{cache:"no-store"}); if(r.ok){ const j=await r.json(); if(j&&j.server) SRV=j; } }catch(_){}
+  }
+  if(!SRV&&!("serial" in navigator)){ $("nosupport").classList.add("show"); $("btnConnect").disabled=true; }
   try{ const v=localStorage.getItem("dps150_thr"); if(v) $("thr").value=v; }catch(_){}
   agg=new Agg(manualA());
   try{ db=await openDB(); }catch(e){ console.warn("IndexedDB kullanılamıyor; kayıt yalnızca bellekte tutulacak",e); }
+  if(SRV){
+    $("srvPort").classList.remove("hidden"); $("model").textContent="Sunucu modu · "+location.host;
+    ghLoad(); GH.lastTry=Date.now()/1000; await srvPorts(); srvStream(); updateButtons(); render(true);
+    return;
+  }
   const info=await countRows();
   if(info.n){
     await rebuild(); resumeMode=true;

@@ -1,0 +1,39 @@
+DPS-150 LAN SUNUCUSU
+====================
+
+DPS-150'nin bağlı olduğu bilgisayarda çalışır. Aynı ağdaki diğer bilgisayarlar ve
+telefonlar http://<bu-bilgisayarın-ip>:8150 adresinden ölçümü canlı izler, kaydı
+başlatıp durdurur, çıkışı açıp kapatır. Kayıt sunucuda sürer; tarayıcıları kapatmak
+kaydı durdurmaz.
+
+1) PYTHON (bir kez)
+   - python.org/downloads adresinden Python 3'ü kurun.
+     Kurulumun ilk ekranında "Add python.exe to PATH" kutusunu işaretleyin.
+   - pyserial'ı sunucu_baslat.bat ilk açılışta kendisi yükler (internet gerekir).
+
+2) ÇALIŞTIRMA
+   - DPS-150'yi Micro-USB portundan bu bilgisayara bağlayın.
+   - Tarayıcıda DPS-150'ye bağlı açık bir sayfa varsa kapatın (port meşgul olur).
+   - sunucu_baslat.bat dosyasına çift tıklayın. Pencerede adresler yazar, örn.:
+        http://192.168.1.25:8150
+   - Windows Güvenlik Duvarı izin sorarsa "Özel ağlar" kutusu işaretliyken "İzin ver"e basın.
+   - Bu pencere açık kaldığı sürece sunucu çalışır.
+
+3) BAĞLANMA
+   - Aynı ağdaki herhangi bir cihazda tarayıcıya pencerede yazan adresi girin.
+   - Üstteki listeden DPS-150'nin portunu seçip "Kaydı başlat"a basın.
+
+4) SORUN GİDERME
+   - Diğer bilgisayardan açılmıyorsa güvenlik duvarı engelliyordur. Yönetici olarak
+     açılan komut isteminde şunu çalıştırın:
+       netsh advfirewall firewall add rule name="DPS-150 sunucu" dir=in action=allow protocol=TCP localport=8150 profile=private
+   - Ağ "Genel" (Public) olarak ayarlıysa: Ayarlar > Ağ ve İnternet > bağlantı > "Özel ağ".
+   - Kayıt açılır açılmaz başlasın isterseniz (ör. bilgisayar yeniden başlayınca):
+       sunucu_baslat.bat --port COM7 --baslat
+   - Veri gelmiyorsa: sunucu_baslat.bat --no-rtscts
+
+NOTLAR
+   - Ölçümler bu klasördeki dps150_kayit.bin dosyasındadır. Sayfadaki "Kaydı sil"
+     eski dosyayı arsiv/ klasörüne taşır, silmez.
+   - Sunucu her açılışta sayfanın en güncel halini hrn190.github.io/dps150'den indirir.
+   - GitHub'a kayıt ve CSV indirme sayfadan aynen çalışır.
