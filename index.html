@@ -133,6 +133,15 @@ dialog .inrow{display:flex;align-items:center;gap:8px}
 dialog input{flex:1;font:600 28px var(--mono);color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;width:100%}
 dialog .unit{font:600 18px var(--mono);color:var(--muted)}
 dialog .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.ghgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 14px;align-items:end}
+.ghgrid label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);min-width:0}
+.ghgrid label.wide{grid-column:span 3}
+.ghgrid label.chk{flex-direction:row;align-items:center;gap:6px;font-size:13px;color:var(--ink);height:32px}
+.ghgrid select{width:100%}
+input[type=text],input[type=password]{font:13px var(--mono);height:32px;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:0 10px;width:100%;min-width:0}
+.ghstatus{margin-top:12px;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.ghstatus.ok{color:var(--ok)} .ghstatus.bad{color:var(--bad)} .ghstatus.warn{color:var(--warn)}
+@media (max-width:700px){.ghgrid{grid-template-columns:1fr 1fr}.ghgrid label.wide{grid-column:span 2}}
 .debug{display:none;font:12px/1.4 var(--mono);max-height:180px;overflow:auto;white-space:pre;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;margin-top:10px}
 .foot{font-size:12.5px;color:var(--muted);margin:4px 2px 0;line-height:1.6}
 .hidden{display:none!important}
@@ -261,6 +270,34 @@ dialog .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
     <div class="pbody">
       <canvas id="bars"></canvas>
       <div class="tablewrap"><table id="tbl"></table></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead">
+      <h2>GitHub'a kayıt</h2>
+      <span class="tag" id="ghTag">Ayarlanmadı</span>
+      <button id="ghTest">Bağlantıyı test et</button>
+      <button class="primary" id="ghNow">Şimdi gönder</button>
+    </div>
+    <div class="pbody">
+      <div class="ghgrid">
+        <label>Depo <input type="text" id="ghRepo" placeholder="kullanıcı/depo" spellcheck="false"></label>
+        <label>Dal <input type="text" id="ghBranch" placeholder="main" spellcheck="false"></label>
+        <label>Kayıt adı <input type="text" id="ghName" placeholder="örn. tork_5V" spellcheck="false"></label>
+        <label>Otomatik gönderim
+          <select id="ghAuto">
+            <option value="0">Kapalı (sadece elle)</option>
+            <option value="600">10 dakikada bir</option>
+            <option value="1800">30 dakikada bir</option>
+            <option value="3600">Saatte bir</option>
+          </select>
+        </label>
+        <label class="wide">Erişim anahtarı (fine-grained token) <input type="password" id="ghToken" autocomplete="off" placeholder="github_pat_…" spellcheck="false"></label>
+        <label class="chk"><input type="checkbox" id="ghRemember"> Bu tarayıcıda hatırla</label>
+      </div>
+      <div class="ghstatus" id="ghStatus">Depo ve token girildiğinde ölçümler GitHub'a gönderilebilir.</div>
+      <p class="foot">Dosyalar <b>kayitlar/&lt;kayıt adı&gt;/</b> klasörüne yazılır: saat saat ham veri (ham/&lt;tarih&gt;/&lt;saat&gt;.csv), saatlik/günlük/haftalık özet, motor çalışmaları ve ozet.json. Her gönderim tek commit'tir ve yalnızca yeni saatleri yükler. Otomatik gönderim kayıt sürerken çalışır, Durdur'a basınca son veriler de gönderilir. Ölçümlerin herkese açık olmaması için ayrı bir özel depo ve yalnızca o depoya "Contents: Read and write" izni olan bir token kullanın.</p>
     </div>
   </section>
 
@@ -571,6 +608,7 @@ async function startRec(){
 async function stopRec(msg){
   if(!recording) return;
   recording=false; await cleanupPort(true); await flush(); if(agg.cur) agg.closeEvent();
+  if(GH.cfg.auto>0&&GH.token&&GH.cfg.repo) setTimeout(()=>ghSync("kayıt durduruldu"),300);
   setStatus("", msg||"Kayıt durduruldu");
   resumeMode=true; updateButtons(); releaseWake();
 }
@@ -747,18 +785,19 @@ let thrTimer=null;
 $("thr").addEventListener("input",()=>{ clearTimeout(thrTimer); thrTimer=setTimeout(async()=>{
   try{localStorage.setItem("dps150_thr",$("thr").value)}catch(_){}
   await rebuild(); render(true); },600); });
-$("btnCsvEv").onclick=()=>{
+function motorRows(){
   const rows=[["no","baslangic","sure_s","tepe_akim_mA","ort_akim_mA","min_gerilim_V","yuk_mAh"]];
   agg.events.forEach((e,k)=>rows.push([k+1,fmtTime(e.start),e.dur.toFixed(3),(e.peak*1000).toFixed(2),e.dur>0?(e.q/e.dur*1000).toFixed(2):"",e.vmin.toFixed(3),(e.q/3.6).toFixed(5)]));
-  download(`dps150_motor_${stamp()}.csv`,[rows.map(r=>r.join(";")).join("\r\n")]);
-};
+  return rows;
+}
+$("btnCsvEv").onclick=()=>download(`dps150_motor_${stamp()}.csv`,[motorRows().map(r=>r.join(";")).join("\r\n")]);
 
 // ------------------------------------------------------------ tablo
-function tableData(){
+function tableData(P=tab){
   const head=["Periyot","Kapsama %","Ort. gerilim (V)","Ort. akım (mA)","Min. akım (mA)","Maks. akım (mA)","Ort. güç (mW)","Yük (mAh)","Enerji (mWh)","Motor çalışması"];
   const rows=[], partial=[];
-  for(const [k,x] of agg.b[tab]){
-    const cov=x.t/PLEN[tab]*100;
+  for(const [k,x] of agg.b[P]){
+    const cov=x.t/PLEN[P]*100;
     rows.push([k,cov.toFixed(1),(x.vt/x.t).toFixed(3),(x.q/x.t*1000).toFixed(3),(x.min*1000).toFixed(2),(x.max*1000).toFixed(2),
       (x.e/x.t*1000).toFixed(2),(x.q/3.6).toFixed(3),(x.e/3.6).toFixed(2),x.ev]);
     partial.push(cov<99.5);
@@ -933,18 +972,16 @@ $("btnCsvTab").onclick=()=>{
   const {head,rows}=tableData();
   download(`dps150_${tab}_${stamp()}.csv`,[[head,...rows.slice().reverse()].map(r=>r.join(";")).join("\r\n")]);
 };
+const RAW_HEAD="unix_time,iso_time,voltage_V,current_A,power_W,input_V,temp_C,mod,koruma\r\n";
+function rawLine(a,k){
+  const d=new Date(a[k]*1000);
+  const iso=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds())+"."+String(d.getMilliseconds()).padStart(3,"0");
+  return `${a[k].toFixed(3)},${iso},${a[k+1].toFixed(4)},${a[k+2].toFixed(5)},${a[k+3].toFixed(5)},${Number.isFinite(a[k+4])?a[k+4].toFixed(3):""},${Number.isFinite(a[k+5])?a[k+5].toFixed(1):""},${a[k+6]===0?"CC":a[k+6]===1?"CV":""},${PROT_NAMES[a[k+7]]||""}\r\n`;
+}
 $("btnCsvRaw").onclick=async()=>{
   await flush();
-  const parts=["unix_time,iso_time,voltage_V,current_A,power_W,input_V,temp_C,mod,koruma\r\n"];
-  await eachChunk(a=>{
-    let s="";
-    for(let k=0;k<a.length;k+=ROW){
-      const d=new Date(a[k]*1000);
-      const iso=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds())+"."+String(d.getMilliseconds()).padStart(3,"0");
-      s+=`${a[k].toFixed(3)},${iso},${a[k+1].toFixed(4)},${a[k+2].toFixed(5)},${a[k+3].toFixed(5)},${Number.isFinite(a[k+4])?a[k+4].toFixed(3):""},${Number.isFinite(a[k+5])?a[k+5].toFixed(1):""},${a[k+6]===0?"CC":a[k+6]===1?"CV":""},${PROT_NAMES[a[k+7]]||""}\r\n`;
-    }
-    parts.push(s);
-  });
+  const parts=[RAW_HEAD];
+  await eachChunk(a=>{ let s=""; for(let k=0;k<a.length;k+=ROW) s+=rawLine(a,k); parts.push(s); });
   download(`dps150_ham_${stamp()}.csv`,parts);
 };
 $("btnClear").onclick=async()=>{
@@ -972,6 +1009,132 @@ $("fileImport").onchange=async e=>{
   e.target.value=""; await rebuild(); resumeMode=true; updateButtons(); render(true);
 };
 
+// ============================================================ GitHub'a kayıt
+const GH={cfg:{repo:"hrn190/dps150-veri",branch:"main",name:"",auto:3600,remember:true},token:"",busy:false,lastTry:0};
+function ghLoad(){
+  try{Object.assign(GH.cfg,JSON.parse(localStorage.getItem("dps150_gh")||"{}"))}catch(_){}
+  try{GH.token=localStorage.getItem("dps150_gh_token")||""}catch(_){}
+  $("ghRepo").value=GH.cfg.repo; $("ghBranch").value=GH.cfg.branch; $("ghName").value=GH.cfg.name;
+  $("ghAuto").value=String(GH.cfg.auto); $("ghRemember").checked=GH.cfg.remember; $("ghToken").value=GH.token;
+  ghTag();
+}
+function ghSave(){
+  try{
+    localStorage.setItem("dps150_gh",JSON.stringify(GH.cfg));
+    if(GH.cfg.remember&&GH.token) localStorage.setItem("dps150_gh_token",GH.token); else localStorage.removeItem("dps150_gh_token");
+  }catch(_){}
+  ghTag();
+}
+function ghTag(){
+  const ready=GH.token&&GH.cfg.repo;
+  tag("ghTag",!ready?"Ayarlanmadı":GH.cfg.auto>0?"Otomatik · "+$("ghAuto").selectedOptions[0].textContent:"Elle",ready?(GH.cfg.auto>0?"ok":""):"");
+}
+function ghStatus(text,cls){ const e=$("ghStatus"); e.textContent=text; e.className="ghstatus"+(cls?" "+cls:""); }
+for(const [id,k] of [["ghRepo","repo"],["ghBranch","branch"],["ghName","name"]])
+  $(id).addEventListener("change",()=>{GH.cfg[k]=$(id).value.trim();ghSave()});
+$("ghAuto").onchange=()=>{GH.cfg.auto=+$("ghAuto").value;ghSave()};
+$("ghRemember").onchange=()=>{GH.cfg.remember=$("ghRemember").checked;ghSave()};
+$("ghToken").addEventListener("change",()=>{GH.token=$("ghToken").value.trim();ghSave()});
+
+const TRMAP={ç:"c",ğ:"g",ı:"i",ö:"o",ş:"s",ü:"u",Ç:"C",Ğ:"G",İ:"I",Ö:"O",Ş:"S",Ü:"U"};
+function ghName(){
+  let n=(GH.cfg.name||"").replace(/[çğıöşüÇĞİÖŞÜ]/g,c=>TRMAP[c]).replace(/[^A-Za-z0-9._-]+/g,"_").replace(/^[._]+|_+$/g,"");
+  if(!n){const d=new Date((agg.first??Date.now()/1000)*1000);n="kayit_"+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+"_"+pad(d.getHours())+pad(d.getMinutes())}
+  return n;
+}
+function ghErr(status,j){
+  const m=j&&j.message?j.message:"";
+  if(status===401) return "Token geçersiz veya süresi dolmuş.";
+  if(status===403) return "Token'ın bu depoya yazma izni yok. Token ayarlarında depoyu seçip 'Contents: Read and write' izni verin.";
+  if(status===404) return "Depo veya dal bulunamadı ya da token bu depoya erişemiyor. Depo adını (kullanıcı/depo) ve dalı kontrol edin.";
+  if(status===409) return "Depo boş. GitHub'da depoyu 'Add a README file' seçeneğiyle oluşturun veya bir dosya ekleyin.";
+  return `GitHub hatası ${status}${m?": "+m:""}`;
+}
+async function gh(method,path,body){
+  const r=await fetch("https://api.github.com"+path,{method,
+    headers:{"Authorization":"Bearer "+GH.token,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28",...(body?{"Content-Type":"application/json"}:{})},
+    body:body?JSON.stringify(body):undefined});
+  let j=null; try{j=await r.json()}catch(_){}
+  if(!r.ok) throw new Error(ghErr(r.status,j));
+  return j;
+}
+const b64=blob=>new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(String(fr.result).split(",")[1]||"");fr.onerror=()=>rej(fr.error);fr.readAsDataURL(blob)});
+// tüm dosyaları tek commit olarak yazar (Git Data API)
+async function ghCommit(files,message,progress){
+  const R="/repos/"+GH.cfg.repo, br=GH.cfg.branch||"main";
+  const ref=await gh("GET",`${R}/git/ref/heads/${br}`);
+  const parent=ref.object.sha, pc=await gh("GET",`${R}/git/commits/${parent}`);
+  const tree=[]; let n=0;
+  for(const f of files){
+    const bl=await gh("POST",`${R}/git/blobs`,{content:await b64(new Blob([f.text])),encoding:"base64"});
+    tree.push({path:f.path,mode:"100644",type:"blob",sha:bl.sha}); progress&&progress(++n,files.length);
+  }
+  const t=await gh("POST",`${R}/git/trees`,{base_tree:pc.tree.sha,tree});
+  const c=await gh("POST",`${R}/git/commits`,{message,tree:t.sha,parents:[parent]});
+  await gh("PATCH",`${R}/git/refs/heads/${br}`,{sha:c.sha});
+  return c;
+}
+function summaryObj(){
+  const t=agg.tot, E=agg.events, th=agg.thr(), n=E.length, I=st.info;
+  let sd=0,sp=0,mx=0,sq=0; for(const e of E){sd+=e.dur;sp+=e.peak;sq+=e.q;if(e.peak>mx)mx=e.peak}
+  const r=(x,d)=>Number.isFinite(x)?+x.toFixed(d):null;
+  return {
+    kayit:ghName(), olusturma:new Date().toISOString(),
+    cihaz:{model:I[T.MODEL]||null,donanim:I[T.HW]||null,yazilim:I[T.FW]||null},
+    ayarlar:st.settings?{gerilim_V:r(st.settings.vset,3),akim_siniri_A:r(st.settings.iset,3),ovp_V:r(st.settings.ovp,3),ocp_A:r(st.settings.ocp,3)}:null,
+    baslangic:agg.first?fmtTime(agg.first):null, bitis:agg.last?fmtTime(agg.last):null,
+    olculen_sure_s:r(t.t,1), ornek_sayisi:agg.n, medyan_aralik_ms:r(agg.median()*1000,0),
+    ort_akim_mA:t.t?r(t.q/t.t*1000,4):null, ort_gerilim_V:t.t?r(t.vt/t.t,4):null, ort_guc_mW:t.t?r(t.e/t.t*1000,3):null,
+    min_akim_mA:r(t.imin*1000,3), maks_akim_mA:r(t.imax*1000,3),
+    toplam_yuk_mAh:r(t.q/3.6,4), toplam_enerji_mWh:r(t.e/3.6,3),
+    motor:{esik_mA:r(th.on*1000,2),otomatik_esik:th.auto,bekleme_akimi_mA:agg.idle!==null?r(agg.idle*1000,3):null,
+      calisma_sayisi:n, ort_sure_s:n?r(sd/n,3):null, ort_tepe_mA:n?r(sp/n*1000,2):null, maks_tepe_mA:n?r(mx*1000,2):null,
+      calisma_basina_mAh:n?r(sq/n/3.6,5):null, toplam_tuketimdeki_pay_yuzde:n&&t.q?r(sq/t.q*100,2):null}
+  };
+}
+async function ghSync(reason){
+  if(GH.busy) return;
+  GH.token=$("ghToken").value.trim(); GH.cfg.repo=$("ghRepo").value.trim(); GH.cfg.branch=$("ghBranch").value.trim()||"main"; GH.cfg.name=$("ghName").value.trim();
+  if(!GH.token||!/^[^/\s]+\/[^/\s]+$/.test(GH.cfg.repo)){ ghStatus("Depoyu kullanıcı/depo biçiminde ve token'ı girin.","bad"); return; }
+  if(!agg.n){ ghStatus("Gönderilecek ölçüm yok.","warn"); return; }
+  GH.busy=true; GH.lastTry=Date.now()/1000; $("ghNow").disabled=true; ghStatus("Hazırlanıyor…");
+  try{
+    await flush();
+    const name=ghName(), base=`kayitlar/${name}`;
+    const key=`dps150_gh_last|${GH.cfg.repo}|${GH.cfg.branch}|${name}`;
+    let lastT=0; try{lastT=+localStorage.getItem(key)||0}catch(_){}
+    const fromH=Math.floor(lastT/3600)*3600;
+    const hours=new Map(); let maxT=lastT;
+    await eachChunk(a=>{ for(let k=0;k<a.length;k+=ROW){ const t=a[k]; if(t<fromH) continue;
+      const d=new Date(t*1000), hk=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}/${pad(d.getHours())}`;
+      let L=hours.get(hk); if(!L){L=[];hours.set(hk,L)} L.push(rawLine(a,k)); if(t>maxT) maxT=t; } });
+    const files=[];
+    for(const [hk,lines] of hours) files.push({path:`${base}/ham/${hk}.csv`,text:RAW_HEAD+lines.join("")});
+    for(const P of PERIODS){ const {head,rows}=tableData(P); files.push({path:`${base}/${P}.csv`,text:[head,...rows.slice().reverse()].map(r=>r.join(";")).join("\r\n")}); }
+    files.push({path:`${base}/motor.csv`,text:motorRows().map(r=>r.join(";")).join("\r\n")});
+    files.push({path:`${base}/ozet.json`,text:JSON.stringify(summaryObj(),null,2)});
+    const c=await ghCommit(files,`${name}: ${fmtTime(maxT)} itibarıyla ölçümler (${reason})`,(i,n)=>ghStatus(`Gönderiliyor… ${i}/${n} dosya`));
+    try{localStorage.setItem(key,String(maxT))}catch(_){}
+    ghStatus(`Son gönderim ${fmtTime(Date.now()/1000)} · ${GH.cfg.repo}/kayitlar/${name} · ${files.length} dosya (${hours.size} saatlik ham veri) · commit ${c.sha.slice(0,7)}`,"ok");
+  }catch(e){ ghStatus("Gönderilemedi: "+(e.message||e)+(GH.cfg.auto>0&&recording?" Bir sonraki otomatik gönderimde tekrar denenecek.":""),"bad"); }
+  finally{ GH.busy=false; $("ghNow").disabled=false; }
+}
+$("ghNow").onclick=()=>ghSync("elle");
+$("ghTest").onclick=async()=>{
+  GH.token=$("ghToken").value.trim(); GH.cfg.repo=$("ghRepo").value.trim(); GH.cfg.branch=$("ghBranch").value.trim()||"main"; ghSave();
+  if(!GH.token||!GH.cfg.repo){ ghStatus("Depo ve token girin.","bad"); return; }
+  ghStatus("Kontrol ediliyor…");
+  try{
+    const r=await gh("GET",`/repos/${GH.cfg.repo}`);
+    await gh("GET",`/repos/${GH.cfg.repo}/git/ref/heads/${GH.cfg.branch}`);
+    if(r.private) ghStatus(`Bağlantı tamam: ${r.full_name} (özel depo), dal ${GH.cfg.branch}.`,"ok");
+    else ghStatus(`Bağlantı tamam, ancak ${r.full_name} herkese açık: gönderilen ölçümleri herkes görebilir. Özel bir depo kullanmanız önerilir.`,"warn");
+  }catch(e){ ghStatus(e.message,"bad"); }
+};
+setInterval(()=>{
+  if(GH.cfg.auto>0&&GH.token&&GH.cfg.repo&&recording&&!GH.busy&&Date.now()/1000-GH.lastTry>=GH.cfg.auto) ghSync("otomatik");
+},30000);
+
 // ============================================================ açılış
 (async()=>{
   if(!("serial" in navigator)){ $("nosupport").classList.add("show"); $("btnConnect").disabled=true; }
@@ -984,6 +1147,7 @@ $("fileImport").onchange=async e=>{
     const r=$("resume"); r.classList.add("show");
     r.innerHTML=`Önceki kayıt yüklendi: <b>${info.n.toLocaleString("tr-TR")}</b> örnek, ${fmtTime(info.first)} – ${fmtTime(info.last)}. "Bağlan ve devam et" ile eklemeye devam edebilir veya ayarlardan "Kaydı sil" ile sıfırlayabilirsiniz.`;
   }
+  ghLoad(); GH.lastTry=Date.now()/1000;
   updateButtons(); render(true);
 })();
 </script>
