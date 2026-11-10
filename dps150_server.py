@@ -154,6 +154,8 @@ class Store:
 class Hub:
     def __init__(self, store, hwflow):
         self.store = store
+        self.tests_path = os.path.splitext(store.path)[0] + "_testler.json"
+        self.tests = self.load_tests()
         self.hwflow = hwflow
         self.lock = threading.Lock()
         self.clients = []
@@ -168,10 +170,32 @@ class Hub:
         self.st = {"vin": None, "temp": None, "mode": -1, "prot": 0, "out_on": None,
                    "info": {}, "settings": None}
 
+    def load_tests(self):
+        try:
+            v = json.load(open(self.tests_path, encoding="utf-8"))
+            if isinstance(v, list) and v:
+                return v
+        except (OSError, ValueError):
+            pass
+        return [{"start": 0, "note": ""}]
+
+    def set_tests(self, tests):
+        if not isinstance(tests, list) or not tests:
+            raise RuntimeError("Geçersiz test listesi.")
+        clean_list = []
+        for x in tests[:500]:
+            clean_list.append({"start": float(x.get("start", 0)), "note": str(x.get("note", ""))[:300]})
+        clean_list.sort(key=lambda x: x["start"])
+        self.tests = clean_list
+        tmp = self.tests_path + ".tmp"
+        json.dump(self.tests, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        os.replace(tmp, self.tests_path)
+
     def state(self):
         s = {"server": True, "recording": self.recording, "rec_start": self.rec_start,
              "duration": self.duration, "port": self.port, "connected": self.connected,
-             "error": self.error, "frames": self.frames, "hwflow": self.hwflow, "st": self.st}
+             "error": self.error, "frames": self.frames, "hwflow": self.hwflow, "st": self.st,
+             "tests": self.tests}
         s.update(self.store.info())
         return clean(s)
 
@@ -432,9 +456,20 @@ class Handler(BaseHTTPRequestHandler):
                 if len(pkt) < 5 or pkt[0] != HDR_TX:
                     raise RuntimeError("Geçersiz paket.")
                 hub.write(pkt)
+            elif u.path == "/api/tests":
+                hub.set_tests(b.get("tests"))
+            elif u.path == "/api/tests/new":
+                hub.set_tests(hub.tests + [{"start": time.time(), "note": str(b.get("note", ""))}])
+                print(f"\n[test] yeni test başladı: {len(hub.tests)}")
             elif u.path == "/api/clear":
                 if hub.recording:
                     raise RuntimeError("Kayıt sürerken silinemez. Önce durdurun.")
+                if hub.store.times and os.path.exists(hub.tests_path):
+                    arch = os.path.join(os.path.dirname(hub.store.path), "arsiv")
+                    os.makedirs(arch, exist_ok=True)
+                    stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(hub.store.times[0]))
+                    os.replace(hub.tests_path, os.path.join(arch, f"dps150_kayit_{stamp}_testler.json"))
+                hub.tests = [{"start": 0, "note": ""}]
                 hub.store.clear()
                 print("\n[kayıt] silindi (arsiv/ klasörüne taşındı)")
             else:

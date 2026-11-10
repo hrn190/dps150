@@ -142,6 +142,13 @@ input[type=text],input[type=password]{font:13px var(--mono);height:32px;color:va
 .ghstatus{margin-top:12px;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 .ghstatus.ok{color:var(--ok)} .ghstatus.bad{color:var(--bad)} .ghstatus.warn{color:var(--warn)}
 @media (max-width:700px){.ghgrid{grid-template-columns:1fr 1fr}.ghgrid label.wide{grid-column:span 2}}
+.testbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 14px}
+.testbar .testmeta{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.testbar input{flex:1 1 320px;font:14px "Segoe UI",system-ui,sans-serif;height:34px}
+.testbar .tag{font-size:12.5px}
+tr.cur td{font-weight:600}
+#testTbl th:nth-child(2){text-align:left}
+td.note{text-align:left;white-space:normal;min-width:180px;max-width:360px;font-family:"Segoe UI",system-ui,sans-serif}
 .debug{display:none;font:12px/1.4 var(--mono);max-height:180px;overflow:auto;white-space:pre;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;margin-top:10px}
 .foot{font-size:12.5px;color:var(--muted);margin:4px 2px 0;line-height:1.6}
 .hidden{display:none!important}
@@ -177,6 +184,13 @@ input[type=text],input[type=password]{font:13px var(--mono);height:32px;color:va
   <div class="banner bad" id="nosupport">Bu tarayıcı Web Serial desteklemiyor. Sayfayı <b>Chrome</b> veya <b>Edge</b> ile açın.</div>
   <div class="banner note" id="resume"></div>
   <div class="banner" id="alert"></div>
+
+  <section class="panel testbar">
+    <span class="tag ok" id="testTag">Test 1</span>
+    <span class="testmeta" id="testMeta">–</span>
+    <input type="text" id="testNote" maxlength="300" placeholder="Bu testte neyi ölçüyorsunuz? Örn. kağıt boyu 3, yeni piller, 6 V" spellcheck="false">
+    <button id="btnNewTest" title="Sayaçları ve özetleri sıfırlayıp yeni test başlatır. Önceki testin verisi Testler tablosunda kalır.">Yeni test · sıfırla</button>
+  </section>
 
   <div class="meters">
     <div class="meter" style="--c:var(--v)">
@@ -258,6 +272,15 @@ input[type=text],input[type=password]{font:13px var(--mono);height:32px;color:va
       <div class="tablewrap"><table id="evtbl"></table></div>
       <p class="foot" style="margin-top:8px">Tepe akım, cihazın örnekleme aralığında yakalanan en yüksek değerdir; ms seviyesindeki kalkış akımı bundan yüksek olabilir. Eşik boşsa bekleme akımı otomatik öğrenilir ve ondan belirgin yükselen her akım çalışma sayılır.</p>
     </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead">
+      <h2>Testler</h2>
+      <span class="thrinfo">Üstteki özet, motor ve periyot bölümleri yalnızca sürmekte olan testi gösterir.</span>
+      <button id="btnCsvTests">CSV indir</button>
+    </div>
+    <div class="pbody"><div class="tablewrap" style="margin-top:0"><table id="testTbl"></table></div></div>
   </section>
 
   <section class="panel">
@@ -483,7 +506,8 @@ const store=(s,m)=>db.transaction(s,m).objectStore(s);
 const req=r=>new Promise((res,rej)=>{r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
 async function putChunk(arr){ if(db) await req(store("chunks","readwrite").add(arr)); }
 async function setMeta(k,v){ if(db) await req(store("meta","readwrite").put(v,k)); }
-async function clearDB(){ if(!db)return; await req(store("chunks","readwrite").clear()); await req(store("meta","readwrite").clear()); }
+async function getMeta(k){ return db? await req(store("meta","readonly").get(k)) : undefined; }
+async function clearDB(){ tests=[{start:0,note:""}]; aggs=[]; if(!db)return; await req(store("chunks","readwrite").clear()); await req(store("meta","readwrite").clear()); }
 function eachChunk(fn){return new Promise((res,rej)=>{
   if(!db) return res();
   const c=store("chunks","readonly").openCursor();
@@ -500,7 +524,9 @@ let port=null, reader=null, writer=null, writeChain=Promise.resolve(), parser=ne
 let recording=false, recStart=0, recLimit=0, lastFrame=0, lastPoll=0, polled=0, frames=0;
 const st={vin:NaN,temp:NaN,mode:-1,prot:0,outOn:null,info:{},settings:null,last:null};
 let wakeLock=null, dbgLines=[];
-let SRV=null;   // sunucu modunda sunucunun son durumu (null = tarayıcıdan doğrudan Web Serial)
+let SRV=null;
+let tests=[{start:0,note:""}], aggs=[];   // testler: her biri başlangıç zamanı + not; aggs[k] o testin analizi
+function testIdx(t){ let lo=0,hi=tests.length-1; while(lo<hi){ const m=(lo+hi+1)>>1; if(tests[m].start<=t) lo=m; else hi=m-1; } return lo; }   // sunucu modunda sunucunun son durumu (null = tarayıcıdan doğrudan Web Serial)
 
 function sample(v,i,p,tIn){
   const t=tIn??Date.now()/1000;
@@ -638,11 +664,13 @@ window.addEventListener("beforeunload",e=>{ if(recording&&!SRV){ flush(); e.prev
 async function rebuild(){
   await flush();
   rebuilding=[];
-  const a=new Agg(manualA()), r=[], cut=Date.now()/1000-3700;
+  const A=tests.map(()=>new Agg(manualA())), r=[], cut=Date.now()/1000-3700;
   keyCache.h=-1;
-  await eachChunk(arr=>{ for(let k=0;k<arr.length;k+=ROW){ a.add(arr[k],arr[k+1],arr[k+2],arr[k+3]); if(arr[k]>cut) r.push([arr[k],arr[k+1],arr[k+2],arr[k+3]]); } });
+  await eachChunk(arr=>{ for(let k=0;k<arr.length;k+=ROW){ const t=arr[k]; A[testIdx(t)].add(t,arr[k+1],arr[k+2],arr[k+3]); if(t>cut) r.push([t,arr[k+1],arr[k+2],arr[k+3]]); } });
+  const a=A[A.length-1];
   for(const row of rebuilding){ a.add(...row); r.push(row); }
-  rebuilding=null; agg=a; ring=r.filter(x=>x[0]>cut);
+  for(let k=0;k<A.length-1;k++) if(A[k].cur) A[k].closeEvent();
+  rebuilding=null; aggs=A; agg=a; ring=r.filter(x=>x[0]>cut);
 }
 
 // ============================================================ arayüz
@@ -704,7 +732,7 @@ function render(force){
     html("sE",(t.e/3.6).toFixed(2),"mWh");
   }else for(const id of ["sI","sMM","sV","sP","sQ","sE"]) html(id,"–");
 
-  renderMotor(force);
+  renderMotor(force); renderTests();
   if($("dbg").checked) $("debug").textContent=dbgLines.join("\n");
   renderTable(force); drawChart(); drawBars(); drawEvBars();
 }
@@ -804,6 +832,60 @@ function motorRows(){
   return rows;
 }
 $("btnCsvEv").onclick=()=>download(`dps150_motor_${stamp()}.csv`,[motorRows().map(r=>r.join(";")).join("\r\n")]);
+
+// ------------------------------------------------------------ testler
+async function saveTests(){
+  if(SRV){ try{ await srvPost("api/tests",{tests}); }catch(e){ console.warn(e); } }
+  else{ try{ await setMeta("tests",tests); }catch(_){} }
+}
+async function loadTests(){
+  if(SRV) return;
+  try{ const v=await getMeta("tests"); tests=Array.isArray(v)&&v.length?v:[{start:0,note:""}]; }catch(_){ tests=[{start:0,note:""}]; }
+}
+function testSummary(a){
+  const E=a.events,n=E.length,t=a.tot; let sd=0,sp=0,sq=0,mx=0; for(const e of E){sd+=e.dur;sp+=e.peak;sq+=e.q;if(e.peak>mx)mx=e.peak}
+  return {first:a.first,last:a.last,dur:t.t,n,avgDur:n?sd/n:NaN,avgPk:n?sp/n*1000:NaN,maxPk:n?mx*1000:NaN,perRun:n?sq/n/3.6:NaN,avgI:t.t?t.q/t.t*1000:NaN,q:t.q/3.6};
+}
+function testRows(){
+  const f=(x,d)=>Number.isFinite(x)?x.toFixed(d):"–";
+  return tests.map((T_,k)=>{
+    const a=k===tests.length-1?agg:aggs[k]; const S=a?testSummary(a):null;
+    return {k,cur:k===tests.length-1,note:T_.note||"",start:S&&S.first?fmtTime(S.first):(T_.start?fmtTime(T_.start):"–"),
+      cells:S?[fmtDur(S.dur),S.n,f(S.avgDur,2),f(S.avgPk,0),f(S.maxPk,0),f(S.perRun,4),f(S.avgI,3),f(S.q,3)]:["–",0,"–","–","–","–","–","–"]};
+  });
+}
+const esc=x=>String(x).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function renderTests(){
+  const cur=tests[tests.length-1], k=tests.length;
+  tag("testTag",`Test ${k}`,recording?"ok":"");
+  const a0=agg.first??(cur.start||null);
+  $("testMeta").textContent=a0?`başlangıç ${fmtTime(a0)}${agg.n?" · "+fmtDur(agg.tot.t):""}`:"henüz ölçüm yok";
+  const inp=$("testNote"); if(document.activeElement!==inp&&inp.value!==(cur.note||"")) inp.value=cur.note||"";
+  const head=["No","Not","Başlangıç","Ölçülen süre","Motor çalışması","Ort. süre (s)","Ort. tepe (mA)","Maks. tepe (mA)","mAh / çalışma","Ort. akım (mA)","Toplam yük (mAh)"];
+  let h="<thead><tr>"+head.map(x=>`<th>${x}</th>`).join("")+"</tr></thead><tbody>";
+  for(const r of testRows().reverse())
+    h+=`<tr${r.cur?' class="cur"':""}><td>${r.k+1}${r.cur?" ●":""}</td><td class="note">${esc(r.note)||'<span style="color:var(--muted)">not yok</span>'}</td><td>${r.start}</td>`+r.cells.map(c=>`<td>${c}</td>`).join("")+"</tr>";
+  setHTML("testTbl",h+"</tbody>");
+}
+let noteTimer=null;
+$("testNote").addEventListener("input",()=>{ tests[tests.length-1].note=$("testNote").value; clearTimeout(noteTimer); noteTimer=setTimeout(saveTests,800); });
+$("testNote").addEventListener("change",()=>{ clearTimeout(noteTimer); tests[tests.length-1].note=$("testNote").value.trim(); saveTests(); });
+$("btnNewTest").onclick=async()=>{
+  const btn=$("btnNewTest"); btn.disabled=true;
+  try{
+    const note=tests[tests.length-1].note||"";
+    if(SRV){ const j=await srvPost("api/tests/new",{note}); tests=j.tests; }
+    else { tests.push({start:Date.now()/1000,note}); await setMeta("tests",tests); }
+    await rebuild(); render(true);
+    const inp=$("testNote"); inp.value=note; inp.focus(); inp.select();
+  }catch(e){ alert("Yeni test başlatılamadı: "+e.message); }
+  finally{ btn.disabled=false; }
+};
+$("btnCsvTests").onclick=()=>{
+  const rows=[["no","not","baslangic","olculen_sure","motor_calismasi","ort_sure_s","ort_tepe_mA","maks_tepe_mA","mAh_calisma","ort_akim_mA","toplam_yuk_mAh"]];
+  for(const r of testRows()) rows.push([r.k+1,`"${r.note.replace(/"/g,'""')}"`,r.start,...r.cells]);
+  download(`dps150_testler_${stamp()}.csv`,[rows.map(r=>r.join(";")).join("\r\n")]);
+};
 
 // ------------------------------------------------------------ tablo
 function tableData(P=tab){
@@ -1110,6 +1192,7 @@ function summaryObj(){
   const r=(x,d)=>Number.isFinite(x)?+x.toFixed(d):null;
   return {
     kayit:ghName(), olusturma:new Date().toISOString(),
+    aktif_test:{no:tests.length,not:tests[tests.length-1].note||""},
     cihaz:{model:I[T.MODEL]||null,donanim:I[T.HW]||null,yazilim:I[T.FW]||null},
     ayarlar:st.settings?{gerilim_V:r(st.settings.vset,3),akim_siniri_A:r(st.settings.iset,3),ovp_V:r(st.settings.ovp,3),ocp_A:r(st.settings.ocp,3)}:null,
     baslangic:agg.first?fmtTime(agg.first):null, bitis:agg.last?fmtTime(agg.last):null,
@@ -1143,6 +1226,10 @@ async function ghSync(reason){
     for(const P of PERIODS){ const {head,rows}=tableData(P); files.push({path:`${base}/${P}.csv`,text:[head,...rows.slice().reverse()].map(r=>r.join(";")).join("\r\n")}); }
     files.push({path:`${base}/motor.csv`,text:motorRows().map(r=>r.join(";")).join("\r\n")});
     files.push({path:`${base}/ozet.json`,text:JSON.stringify(summaryObj(),null,2)});
+    files.push({path:`${base}/testler.json`,text:JSON.stringify(tests,null,2)});
+    { const rows=[["no","not","baslangic","olculen_sure","motor_calismasi","ort_sure_s","ort_tepe_mA","maks_tepe_mA","mAh_calisma","ort_akim_mA","toplam_yuk_mAh"]];
+      for(const r of testRows()) rows.push([r.k+1,`"${r.note.replace(/"/g,'""')}"`,r.start,...r.cells]);
+      files.push({path:`${base}/testler.csv`,text:rows.map(r=>r.join(";")).join("\r\n")}); }
     const c=await ghCommit(files,`${name}: ${fmtTime(maxT)} itibarıyla ölçümler (${reason})`,(i,n)=>ghStatus(`Gönderiliyor… ${i}/${n} dosya`));
     try{localStorage.setItem(key,String(maxT))}catch(_){}
     ghStatus(`Son gönderim ${fmtTime(Date.now()/1000)} · ${GH.cfg.repo}/kayitlar/${name} · ${files.length} dosya (${hours.size} saatlik ham veri) · commit ${c.sha.slice(0,7)}`,"ok");
@@ -1172,6 +1259,9 @@ $("ghOpen").onclick=async()=>{
     const info=await countRows();
     if(info.n && !confirm(`Tarayıcıdaki mevcut kayıt (${info.n} örnek) yerine GitHub'daki "${want}" kaydı (${files.length} saatlik dosya) yüklenecek. Devam edilsin mi?`)){ ghStatus("İptal edildi."); return; }
     await clearDB(); agg=new Agg(manualA()); ring=[]; st.last=null;
+    const tj=(tr.tree||[]).find(x=>x.path===`kayitlar/${want}/testler.json`);
+    if(tj){ try{ const v=JSON.parse(b64text((await gh("GET",`${R}/git/blobs/${tj.sha}`)).content)); if(Array.isArray(v)&&v.length) tests=v; }catch(_){} }
+    await setMeta("tests",tests);
     let buf=[], maxT=0;
     for(let n=0;n<files.length;n++){
       ghStatus(`İndiriliyor… ${n+1}/${files.length} dosya`);
@@ -1240,6 +1330,10 @@ function srvApply(j){
   if(!j||!j.server) return;
   const wasFirst=SRV?.first;
   SRV=j; recording=!!j.recording; recStart=j.rec_start||recStart;
+  if(Array.isArray(j.tests)&&j.tests.length&&JSON.stringify(j.tests)!==JSON.stringify(tests)){
+    const moved=j.tests.length!==tests.length||j.tests.some((x,k)=>x.start!==tests[k]?.start);
+    tests=j.tests; if(moved&&srvReady) rebuild().then(()=>render(true));
+  }
   const S=j.st||{};
   st.outOn=S.out_on??null; st.settings=S.settings||st.settings; st.prot=S.prot||0; st.mode=S.mode??-1;
   if(S.vin!=null) st.vin=S.vin; if(S.temp!=null) st.temp=S.temp;
@@ -1265,6 +1359,7 @@ async function srvResync(){
     await flush();
     const info=await countRows();
     const j=await (await fetch("api/info",{cache:"no-store"})).json(); SRV=j;
+    if(Array.isArray(j.tests)&&j.tests.length) tests=j.tests;
     let since=0;
     if(info.n&&j.first!=null&&Math.abs(info.first-j.first)<0.001&&info.last<=j.last+0.001) since=info.last;
     else if(info.n){ await clearDB(); agg=new Agg(manualA()); ring=[]; st.last=null; }
@@ -1308,6 +1403,7 @@ function srvStream(){
     ghLoad(); GH.lastTry=Date.now()/1000; await srvPorts(); srvStream(); updateButtons(); render(true);
     return;
   }
+  await loadTests();
   const info=await countRows();
   if(info.n){
     await rebuild(); resumeMode=true;
