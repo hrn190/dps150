@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DPS-150 Ölçüm Kaydı</title>
+<style>
+:root{
+  --bg:#eef0f2; --panel:#ffffff; --panel2:#f6f7f9; --ink:#14181d; --muted:#5f6b78; --line:#d9dee4; --grid:#e9ecf0;
+  --v:#1f5fd6; --i:#d4531c; --p:#7a3fc4; --ok:#14804a; --ok-bg:#e6f4ec;
+  --warn:#9a5b00; --warn-bg:#fff3dc; --bad:#b42318; --bad-bg:#fdecea; --btn:#14181d; --btn-ink:#ffffff;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,"SF Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d1014; --panel:#151a20; --panel2:#1b2129; --ink:#e6eaef; --muted:#8b97a5; --line:#262e38; --grid:#1f262f;
+    --v:#5b9bff; --i:#ff8a4c; --p:#b98cff; --ok:#3ccf86; --ok-bg:#10281c;
+    --warn:#f2b350; --warn-bg:#2a2112; --bad:#ff7b6e; --bad-bg:#2c1614; --btn:#e6eaef; --btn-ink:#0d1014;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d1014; --panel:#151a20; --panel2:#1b2129; --ink:#e6eaef; --muted:#8b97a5; --line:#262e38; --grid:#1f262f;
+  --v:#5b9bff; --i:#ff8a4c; --p:#b98cff; --ok:#3ccf86; --ok-bg:#10281c;
+  --warn:#f2b350; --warn-bg:#2a2112; --bad:#ff7b6e; --bad-bg:#2c1614; --btn:#e6eaef; --btn-ink:#0d1014;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:18px 16px 40px}
+
+/* üst çubuk */
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-bottom:14px}
+.brand{display:flex;align-items:baseline;gap:10px;margin-right:auto}
+.brand h1{font-size:18px;font-weight:650;margin:0;letter-spacing:.2px}
+.brand span{font-size:12.5px;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:6px;background:var(--panel);border:1px solid var(--line);font-size:12.5px;color:var(--muted);white-space:nowrap}
+.chip b{color:var(--ink);font:600 12.5px var(--mono)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.on{background:var(--ok);animation:pulse 2s infinite}
+.dot.err{background:var(--bad)}
+@keyframes pulse{50%{opacity:.35}}
+button{font:inherit;cursor:pointer;height:32px;padding:0 14px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+button:hover:not(:disabled){border-color:var(--muted)}
+button.primary{background:var(--btn);color:var(--btn-ink);border-color:var(--btn);font-weight:600}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.4;cursor:not-allowed}
+
+.banner{display:none;padding:9px 14px;border-radius:6px;margin-bottom:12px;font-size:13.5px}
+.banner.show{display:block}
+.banner.warn{background:var(--warn-bg);color:var(--warn)}
+.banner.bad{background:var(--bad-bg);color:var(--bad)}
+.banner.note{background:var(--panel);border:1px solid var(--line);color:var(--muted)}
+.banner.note b{color:var(--ink)}
+
+/* göstergeler */
+.meters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(170px,.7fr);gap:12px;margin-bottom:12px}
+.meter{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px 12px;position:relative;overflow:hidden}
+.meter::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c)}
+.meter .lab{display:flex;justify-content:space-between;font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.meter .val{font:600 44px/1.1 var(--mono);color:var(--c);margin-top:6px;white-space:nowrap;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.meter .val small{font-size:18px;margin-left:6px;color:var(--muted);font-weight:500;letter-spacing:0}
+.meter .sub{font:12.5px var(--mono);color:var(--muted);margin-top:4px}
+.status-col{display:flex;flex-direction:column;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.srow{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--muted)}
+.tag{font:600 12px var(--mono);padding:2px 8px;border-radius:4px;background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+.tag.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
+.tag.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
+.tag.bad{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+
+/* panel */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:12px}
+.phead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.phead h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 auto 0 0;font-weight:650}
+.pbody{padding:12px 14px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--panel2)}
+.seg button{border:0;border-radius:0;height:28px;padding:0 11px;background:transparent;color:var(--muted);font-size:13px}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.act{background:var(--panel);color:var(--ink);font-weight:600}
+.tog{display:inline-flex;gap:6px}
+.tog label{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;cursor:pointer;user-select:none;color:var(--muted)}
+.tog input{display:none}
+.tog label .sw{width:10px;height:10px;border-radius:2px;background:var(--line)}
+.tog input:checked+.sw{background:var(--c)}
+.tog input:checked~span{color:var(--ink)}
+.chartbox{position:relative}
+canvas{display:block;width:100%}
+#chart{height:330px;cursor:crosshair}
+#bars{height:180px}
+#evbars{height:170px}
+.thrlab{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.thrlab input{width:92px;height:28px;font:600 13px var(--mono);color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:0 8px}
+.thrinfo{font-size:12.5px;color:var(--muted)}
+.tag.run{background:var(--i);color:#fff;border-color:transparent;animation:pulse 1.2s infinite}
+.wstats{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:12.5px;color:var(--muted);padding:8px 2px 0}
+.wstats b{font:600 12.5px var(--mono);color:var(--ink)}
+
+/* özet */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.stat{padding:10px 14px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.stat:nth-child(4n){border-right:0}
+.stat:nth-last-child(-n+4){border-bottom:0}
+.stat .k{font-size:11.5px;color:var(--muted)}
+.stat .v{font:600 19px/1.3 var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.stat .v small{font-size:12px;color:var(--muted);font-weight:500;margin-left:3px}
+
+/* tablo */
+.tablewrap{max-height:380px;overflow:auto;border:1px solid var(--line);border-radius:6px;margin-top:10px}
+table{border-collapse:collapse;width:100%;font:12.5px/1.3 var(--mono);font-variant-numeric:tabular-nums}
+th,td{padding:6px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--panel2);font:600 11.5px "Segoe UI",system-ui,sans-serif;color:var(--muted);letter-spacing:.02em}
+td:first-child,th:first-child{text-align:left}
+tr.partial td{color:var(--muted)}
+tbody tr:hover td{background:var(--panel2)}
+.empty{padding:22px;text-align:center;color:var(--muted);font-family:"Segoe UI",system-ui,sans-serif}
+
+/* ayarlar */
+.settings{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+.settings label{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+select{font:inherit;height:32px;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:0 8px}
+.filebtn{position:relative;overflow:hidden;display:inline-flex;align-items:center;height:32px;padding:0 14px;border:1px solid var(--line);border-radius:6px;cursor:pointer;font-size:14px;color:var(--ink)}
+.filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.set{cursor:pointer;border-bottom:1px dashed var(--muted);color:var(--ink)}
+.set:hover{color:var(--c);border-bottom-color:var(--c)}
+.set.dis{cursor:default;border-bottom-color:transparent;color:var(--muted)}
+.outbtn{height:40px;margin-top:4px;font-weight:650;letter-spacing:.04em;border-radius:6px}
+.outbtn.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.outbtn.off{background:var(--panel2)}
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:0;width:min(360px,92vw);box-shadow:0 12px 40px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(10,14,18,.45)}
+dialog form{padding:18px}
+dialog h3{margin:0 0 4px;font-size:15px}
+dialog .hint{font-size:12.5px;color:var(--muted);margin-bottom:12px}
+dialog .inrow{display:flex;align-items:center;gap:8px}
+dialog input{flex:1;font:600 28px var(--mono);color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;width:100%}
+dialog .unit{font:600 18px var(--mono);color:var(--muted)}
+dialog .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.debug{display:none;font:12px/1.4 var(--mono);max-height:180px;overflow:auto;white-space:pre;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;margin-top:10px}
+.foot{font-size:12.5px;color:var(--muted);margin:4px 2px 0;line-height:1.6}
+.hidden{display:none!important}
+
+@media (max-width:900px){
+  .meters{grid-template-columns:1fr 1fr}
+  .meter .val{font-size:34px}
+}
+@media (max-width:700px){
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stat:nth-child(4n){border-right:1px solid var(--line)}
+  .stat:nth-child(2n){border-right:0}
+}
+@media (max-width:520px){
+  .meters{grid-template-columns:1fr}
+  #chart{height:260px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div class="brand"><h1>DPS-150 Ölçüm Kaydı</h1><span id="model">Cihaz bağlı değil</span></div>
+    <span class="chip">Giriş <b id="cVin">–</b></span>
+    <span class="chip">Sıcaklık <b id="cTemp">–</b></span>
+    <span class="chip"><span class="dot" id="dot"></span><span id="status">Bağlı değil</span></span>
+    <button class="primary" id="btnConnect">Bağlan ve kaydet</button>
+    <button id="btnStop" disabled>Durdur</button>
+  </div>
+
+  <div class="banner bad" id="nosupport">Bu tarayıcı Web Serial desteklemiyor. Sayfayı <b>Chrome</b> veya <b>Edge</b> ile açın.</div>
+  <div class="banner note" id="resume"></div>
+  <div class="banner" id="alert"></div>
+
+  <div class="meters">
+    <div class="meter" style="--c:var(--v)">
+      <div class="lab"><span>Gerilim</span><span id="vSetLab"></span></div>
+      <div class="val" id="mV">–<small>V</small></div>
+      <div class="sub" id="mVsub">Ayar –</div>
+    </div>
+    <div class="meter" style="--c:var(--i)">
+      <div class="lab"><span>Akım</span><span></span></div>
+      <div class="val" id="mI">–<small>mA</small></div>
+      <div class="sub" id="mIsub">Sınır –</div>
+    </div>
+    <div class="meter" style="--c:var(--p)">
+      <div class="lab"><span>Güç</span><span></span></div>
+      <div class="val" id="mP">–<small>mW</small></div>
+      <div class="sub" id="mPsub">&nbsp;</div>
+    </div>
+    <div class="status-col">
+      <div class="srow">Mod <span class="tag" id="tMode">–</span></div>
+      <div class="srow">Koruma <span class="tag" id="tProt">–</span></div>
+      <div class="srow">Çıkış <span class="tag" id="tOut">–</span></div>
+      <div class="srow">Kayıt <span class="tag" id="tRec">–</span></div>
+      <button class="outbtn off" id="btnOut" disabled>ÇIKIŞ</button>
+    </div>
+  </div>
+
+  <section class="panel">
+    <div class="phead">
+      <h2>Zaman grafiği</h2>
+      <div class="tog">
+        <label style="--c:var(--v)"><input type="checkbox" id="showV" checked><i class="sw"></i><span>Gerilim</span></label>
+        <label style="--c:var(--i)"><input type="checkbox" id="showI" checked><i class="sw"></i><span>Akım</span></label>
+        <label style="--c:var(--p)"><input type="checkbox" id="showP"><i class="sw"></i><span>Güç</span></label>
+      </div>
+      <div class="seg" id="win">
+        <button data-w="60">1 dk</button><button data-w="600" class="act">10 dk</button><button data-w="3600">1 sa</button><button data-w="86400">24 sa</button><button data-w="0">Tümü</button>
+      </div>
+    </div>
+    <div class="pbody">
+      <div class="chartbox"><canvas id="chart"></canvas></div>
+      <div class="wstats" id="wstats"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead"><h2>Kayıt özeti</h2></div>
+    <div class="stats">
+      <div class="stat"><div class="k">Kayıt süresi</div><div class="v" id="sDur">–</div></div>
+      <div class="stat"><div class="k">Örnek · aralık</div><div class="v" id="sN">–</div></div>
+      <div class="stat"><div class="k">Ort. akım</div><div class="v" id="sI">–</div></div>
+      <div class="stat"><div class="k">Min / maks. akım</div><div class="v" id="sMM">–</div></div>
+      <div class="stat"><div class="k">Ort. gerilim</div><div class="v" id="sV">–</div></div>
+      <div class="stat"><div class="k">Ort. güç</div><div class="v" id="sP">–</div></div>
+      <div class="stat"><div class="k">Toplam yük</div><div class="v" id="sQ">–</div></div>
+      <div class="stat"><div class="k">Toplam enerji</div><div class="v" id="sE">–</div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead">
+      <h2>Motor çalışmaları</h2>
+      <span class="tag" id="runTag">–</span>
+      <label class="thrlab">Algılama eşiği <input type="number" id="thr" min="1" step="1" placeholder="Otomatik"> mA</label>
+      <span class="thrinfo" id="thrInfo"></span>
+      <button id="btnCsvEv">CSV indir</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="k">Toplam çalışma</div><div class="v" id="eN">–</div></div>
+      <div class="stat"><div class="k">Bugün · son 1 saat</div><div class="v" id="eToday">–</div></div>
+      <div class="stat"><div class="k">Son çalışma</div><div class="v" id="eLast">–</div></div>
+      <div class="stat"><div class="k">Son çalışma tepe akımı</div><div class="v" id="eLastPk">–</div></div>
+      <div class="stat"><div class="k">Ort. çalışma süresi</div><div class="v" id="eDur">–</div></div>
+      <div class="stat"><div class="k">Ort. / en yüksek tepe akım</div><div class="v" id="ePk">–</div></div>
+      <div class="stat"><div class="k">Çalışma başına yük</div><div class="v" id="eQ">–</div></div>
+      <div class="stat"><div class="k">Motorun toplam tüketimdeki payı</div><div class="v" id="eShare">–</div></div>
+    </div>
+    <div class="pbody">
+      <canvas id="evbars"></canvas>
+      <div class="tablewrap"><table id="evtbl"></table></div>
+      <p class="foot" style="margin-top:8px">Tepe akım, cihazın örnekleme aralığında yakalanan en yüksek değerdir; ms seviyesindeki kalkış akımı bundan yüksek olabilir. Eşik boşsa bekleme akımı otomatik öğrenilir ve ondan belirgin yükselen her akım çalışma sayılır.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead">
+      <h2>Periyot ortalamaları</h2>
+      <div class="seg" id="tabs">
+        <button data-t="saatlik" class="act">Saatlik</button><button data-t="gunluk">Günlük</button><button data-t="haftalik">Haftalık</button>
+      </div>
+      <button id="btnCsvTab">CSV indir</button>
+    </div>
+    <div class="pbody">
+      <canvas id="bars"></canvas>
+      <div class="tablewrap"><table id="tbl"></table></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead"><h2>Kayıt ve bağlantı ayarları</h2></div>
+    <div class="pbody">
+      <div class="settings">
+        <label>Kayıt süresi
+          <select id="dur">
+            <option value="0">Sınırsız</option>
+            <option value="3600">1 saat</option>
+            <option value="86400">24 saat</option>
+            <option value="604800">7 gün</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="hwflow" checked> Donanım akış kontrolü</label>
+        <label><input type="checkbox" id="dbg"> Ham paketleri göster</label>
+        <span style="flex:1"></span>
+        <button id="btnCsvRaw">Ham veriyi CSV indir</button>
+        <span class="filebtn">CSV içe aktar<input type="file" id="fileImport" accept=".csv"></span>
+        <button class="danger" id="btnClear">Kaydı sil</button>
+      </div>
+      <div class="debug" id="debug"></div>
+      <p class="foot">
+        DPS-150'yi Micro-USB portundan bağlayın, resmi FNIRSI yazılımı kapalı olsun. Kayıt tarayıcıda saklanır; sekme kapanırsa sayfayı yeniden açıp kayda devam edebilirsiniz.
+        Uzun kayıtta sekmeyi kapatmayın ve bilgisayarın uyku modunu kapatın. Veri gelmezse "Donanım akış kontrolü" seçeneğini değiştirip yeniden bağlanın.
+        Cihaz saniyede birkaç ölçüm verdiğinden ms seviyesindeki geçici akımlar (ör. motor kalkış akımı) görünmez; motor çalışma sayısı, süresi ve tüketimi doğru ölçülür. Bağlıyken ÇIKIŞ düğmesiyle çıkışı açıp kapatabilir, gerilim/akım sınırı/OVP/OCP değerlerine tıklayarak ayarlayabilirsiniz. Protokol: github.com/cho45/fnirsi-dps-150 (resmi değildir).
+      </p>
+    </div>
+  </section>
+</div>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <h3 id="dlgTitle">Ayar</h3>
+    <div class="hint" id="dlgHint"></div>
+    <div class="inrow"><input type="number" id="dlgVal" required><span class="unit" id="dlgUnit"></span></div>
+    <div class="btns"><button value="cancel" formnovalidate>İptal</button><button class="primary" value="ok" id="dlgOk">Ayarla</button></div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+// ============================================================ protokol
+const HDR_TX=0xF1, HDR_RX=0xF0, CMD_GET=0xA1, CMD_BAUD=0xB0, CMD_SESSION=0xC1;
+const T={VIN:0xC0, OUT:0xC3, TEMP:0xC4, CLOSED:0xDB, PROT:0xDC, MODE:0xDD, MODEL:0xDE, HW:0xDF, FW:0xE0, ALL:0xFF};
+const PROT_NAMES=["","OVP","OCP","OPP","OTP","LVP","REP"];
+const CMD_SET=0xB1;
+// ayarlanabilir değerler (tip kodları: github.com/cho45/fnirsi-dps-150 dps-150.js)
+const SETT={
+  vset:{typ:0xC1,name:"Çıkış gerilimi",unit:"V",min:0,max:30,step:0.01,dig:2},
+  iset:{typ:0xC2,name:"Akım sınırı",unit:"A",min:0,max:5.1,step:0.001,dig:3},
+  ovp:{typ:0xD1,name:"Aşırı gerilim koruması (OVP)",unit:"V",min:0,max:30,step:0.01,dig:2},
+  ocp:{typ:0xD2,name:"Aşırı akım koruması (OCP)",unit:"A",min:0,max:5.1,step:0.001,dig:3},
+};
+const fbytes=x=>{const a=new Uint8Array(4);new DataView(a.buffer).setFloat32(0,x,true);return [...a]};
+const GAP=10;      // s: daha uzun boşluklar (kopma) hesaba katılmaz
+const COARSE=10;   // s: uzun pencereler için özet kova genişliği
+
+function packet(cmd,typ,data){
+  const d=Array.isArray(data)?data:[data];
+  let s=typ+d.length; for(const b of d) s+=b;
+  return new Uint8Array([HDR_TX,cmd,typ,d.length,...d,s&255]);
+}
+class Parser{
+  constructor(){this.buf=new Uint8Array(0)}
+  feed(chunk){
+    const b=new Uint8Array(this.buf.length+chunk.length); b.set(this.buf); b.set(chunk,this.buf.length);
+    const out=[]; let i=0;
+    while(true){
+      while(i<b.length && b[i]!==HDR_RX) i++;
+      if(b.length-i<5) break;
+      const ln=b[i+3]; if(b.length-i<5+ln) break;
+      const typ=b[i+2]; let s=typ+ln; for(let k=0;k<ln;k++) s+=b[i+4+k];
+      if((s&255)===b[i+4+ln]){ out.push({cmd:b[i+1],typ,data:b.slice(i+4,i+4+ln)}); i+=5+ln; }
+      else i++;
+    }
+    this.buf=b.slice(i); return out;
+  }
+}
+const f32=(d,o)=>new DataView(d.buffer,d.byteOffset,d.byteLength).getFloat32(o,true);
+
+// ============================================================ zaman yardımcıları
+const pad=n=>String(n).padStart(2,"0");
+function isoWeek(d){
+  const t=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  t.setDate(t.getDate()+3-((t.getDay()+6)%7));
+  const y=t.getFullYear(), j4=new Date(y,0,4);
+  const w=1+Math.round(((t-j4)/864e5-3+((j4.getDay()+6)%7))/7);
+  return y+"-H"+pad(w);
+}
+const PERIODS=["saatlik","gunluk","haftalik"];
+const PLEN={saatlik:3600,gunluk:86400,haftalik:604800};
+let keyCache={h:-1,keys:null};
+function keysFor(t){
+  const h=Math.floor(t/3600);
+  if(h===keyCache.h) return keyCache.keys;
+  const d=new Date(t*1000);
+  const day=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  keyCache={h,keys:{saatlik:day+" "+pad(d.getHours())+":00",gunluk:day,haftalik:isoWeek(d)}};
+  return keyCache.keys;
+}
+const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400);s%=86400;
+  const x=pad(Math.floor(s/3600))+":"+pad(Math.floor(s%3600/60))+":"+pad(s%60);return d?d+"g "+x:x};
+const fmtTime=t=>{const d=new Date(t*1000);return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds())};
+// akımı otomatik birimle yaz (A cinsinden giriş)
+function fmtI(a,dig){ if(!Number.isFinite(a)) return ["–","mA"]; return Math.abs(a)>=1?[a.toFixed(3),"A"]:[(a*1000).toFixed(dig??2),"mA"]; }
+function fmtP(w){ if(!Number.isFinite(w)) return ["–","mW"]; return Math.abs(w)>=1?[w.toFixed(3),"W"]:[(w*1000).toFixed(1),"mW"]; }
+
+// ============================================================ analiz (trapez integrali)
+class Agg{
+  constructor(manualA){
+    this.manual=manualA||null; this.idle=null; this.events=[]; this.cur=null;
+    this.b={saatlik:new Map(),gunluk:new Map(),haftalik:new Map()};
+    this.tot={t:0,q:0,e:0,vt:0,imin:Infinity,imax:-Infinity};
+    this.coarse=[]; this.prev=null; this.n=0; this.first=null; this.last=null; this.dts=[];
+  }
+  add(t,v,i,p){
+    this.n++; if(this.first===null) this.first=t; this.last=t;
+    // uzun pencere özeti
+    const ck=Math.floor(t/COARSE)*COARSE; let c=this.coarse[this.coarse.length-1];
+    if(!c||c.t!==ck){c={t:ck,n:0,v:0,i:0,p:0,imin:Infinity,imax:-Infinity};this.coarse.push(c)}
+    c.n++;c.v+=v;c.i+=i;c.p+=p;if(i<c.imin)c.imin=i;if(i>c.imax)c.imax=i;
+    const T_=this.tot; if(i<T_.imin)T_.imin=i; if(i>T_.imax)T_.imax=i;
+    const pr=this.prev;
+    if(pr){
+      const dt=t-pr.t;
+      if(dt>0&&dt<=GAP){
+        const q=(pr.i+i)/2*dt, e=(pr.p+p)/2*dt, vt=(pr.v+v)/2*dt;
+        const K=keysFor(pr.t);
+        for(const P of PERIODS){
+          let x=this.b[P].get(K[P]);
+          if(!x){x={t:0,q:0,e:0,vt:0,min:Infinity,max:-Infinity,ev:0,evq:0};this.b[P].set(K[P],x)}
+          x.t+=dt;x.q+=q;x.e+=e;x.vt+=vt;
+          const lo=Math.min(pr.i,i),hi=Math.max(pr.i,i); if(lo<x.min)x.min=lo; if(hi>x.max)x.max=hi;
+        }
+        T_.t+=dt;T_.q+=q;T_.e+=e;T_.vt+=vt;
+        this.dts.push(dt); if(this.dts.length>300) this.dts.shift();
+        if(this.cur){this.cur.q+=q;this.cur.end=t}
+      }else if(this.cur) this.closeEvent();   // bağlantı koptuysa açık çalışmayı kapat
+    }
+    // motor çalışması algılama (histerezisli)
+    const th=this.thr();
+    if(this.cur){
+      if(i>this.cur.peak)this.cur.peak=i; if(v<this.cur.vmin)this.cur.vmin=v;
+      if(i<th.off) this.closeEvent();
+    }else if(this.idle!==null && i>=th.on){
+      this.cur={start:t,end:t,q:0,peak:i,vmin:v};
+    }
+    // bekleme akımını öğren (sadece motor çalışmıyorken)
+    if(!this.cur){
+      if(this.idle===null) this.idle=i;
+      else if(i<th.on) this.idle+=(i<this.idle?0.2:0.02)*(i-this.idle);
+    }
+    this.prev={t,v,i,p};
+  }
+  thr(){
+    if(this.manual) return {on:this.manual,off:this.manual*0.7,auto:false};
+    const idle=Math.max(0,this.idle??0), on=idle+Math.max(0.015,idle);
+    return {on,off:idle+(on-idle)*0.5,auto:true};
+  }
+  closeEvent(){
+    const ev=this.cur; this.cur=null; if(!ev) return;
+    ev.dur=ev.end-ev.start; this.events.push(ev);
+    const K=keysFor(ev.start);
+    for(const P of PERIODS){const x=this.b[P].get(K[P]); if(x){x.ev++;x.evq+=ev.q}}
+  }
+  median(){if(!this.dts.length)return 0;const s=[...this.dts].sort((a,b)=>a-b);return s[s.length>>1]}
+}
+
+// ============================================================ kalıcı depolama (IndexedDB)
+// satır: t, V, A, W, Vin, sıcaklık, mod(1 CV,0 CC,-1 ?), koruma
+const ROW=8;
+let db=null;
+function openDB(){return new Promise((res,rej)=>{
+  const r=indexedDB.open("dps150_kayit",1);
+  r.onupgradeneeded=()=>{const d=r.result;d.createObjectStore("chunks",{autoIncrement:true});d.createObjectStore("meta")};
+  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+})}
+const store=(s,m)=>db.transaction(s,m).objectStore(s);
+const req=r=>new Promise((res,rej)=>{r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+async function putChunk(arr){ if(db) await req(store("chunks","readwrite").add(arr)); }
+async function setMeta(k,v){ if(db) await req(store("meta","readwrite").put(v,k)); }
+async function clearDB(){ if(!db)return; await req(store("chunks","readwrite").clear()); await req(store("meta","readwrite").clear()); }
+function eachChunk(fn){return new Promise((res,rej)=>{
+  if(!db) return res();
+  const c=store("chunks","readonly").openCursor();
+  c.onsuccess=()=>{const cur=c.result; if(cur){fn(cur.value);cur.continue()} else res()};
+  c.onerror=()=>rej(c.error);
+})}
+async function countRows(){let n=0,first=null,last=null;await eachChunk(a=>{const m=a.length/ROW;if(m){if(first===null)first=a[0];last=a[(m-1)*ROW]}n+=m});return{n,first,last}}
+
+// ============================================================ durum
+const $=id=>document.getElementById(id);
+const manualA=()=>{const v=parseFloat(($("thr")?.value||"").replace(",","."));return v>0?v/1000:null};
+let agg=new Agg(null), pending=[], ring=[], rebuilding=null, resumeMode=false;
+let port=null, reader=null, writer=null, writeChain=Promise.resolve(), parser=new Parser();
+let recording=false, recStart=0, recLimit=0, lastFrame=0, lastPoll=0, polled=0, frames=0;
+const st={vin:NaN,temp:NaN,mode:-1,prot:0,outOn:null,info:{},settings:null,last:null};
+let wakeLock=null, dbgLines=[];
+
+function sample(v,i,p){
+  const t=Date.now()/1000;
+  if(t-lastFrame<0.01) return;
+  lastFrame=t;
+  pending.push(t,v,i,p,st.vin,st.temp,st.mode,st.prot);
+  if(rebuilding) rebuilding.push([t,v,i,p]); else agg.add(t,v,i,p);
+  ring.push([t,v,i,p]); const cut=t-3700; while(ring.length&&ring[0][0]<cut) ring.shift();
+  st.last={v,i,p};
+}
+async function flush(){
+  if(!pending.length) return;
+  const a=new Float64Array(pending); pending=[];
+  try{await putChunk(a)}catch(e){console.error(e)}
+}
+setInterval(flush,5000);
+
+// ============================================================ seri port
+function send(pkt){
+  writeChain=writeChain.then(async()=>{ if(writer){ await writer.write(pkt); await new Promise(r=>setTimeout(r,50)); } }).catch(()=>{});
+  return writeChain;
+}
+function handleFrame({cmd,typ,data}){
+  frames++;
+  if($("dbg").checked){
+    dbgLines.push(`cmd=0x${cmd.toString(16)} type=0x${typ.toString(16)} len=${data.length} ${[...data].map(b=>pad(b.toString(16))).join("")}`);
+    if(dbgLines.length>60) dbgLines.shift();
+  }
+  switch(typ){
+    case T.VIN: if(data.length>=4) st.vin=f32(data,0); break;
+    case T.TEMP: if(data.length>=4) st.temp=f32(data,0); break;
+    case T.MODE: if(data.length) st.mode=data[0]===0?0:1; break;
+    case T.PROT: if(data.length) st.prot=data[0]; break;
+    case T.CLOSED: if(data.length) st.outOn=data[0]===1; break;   // 1 = çıkış açık
+    case T.MODEL: case T.HW: case T.FW:
+      st.info[typ]=new TextDecoder().decode(data).replace(/\0/g,"").trim(); break;
+    case T.OUT: if(data.length>=12) sample(f32(data,0),f32(data,4),f32(data,8)); break;
+    case T.ALL:
+      if(data.length>=110){
+        st.vin=f32(data,0); st.temp=f32(data,24); st.outOn=data[107]===1; st.prot=data[108]; st.mode=data[109]===0?0:1;
+        st.settings={vset:f32(data,4),iset:f32(data,8),ovp:f32(data,76),ocp:f32(data,80)};
+        sample(f32(data,12),f32(data,16),f32(data,20));
+      }
+      break;
+  }
+}
+async function readLoop(){
+  if(!(port&&port.readable)) return;
+  reader=port.readable.getReader();
+  try{
+    while(true){
+      const {value,done}=await reader.read();
+      if(done) break;
+      if(value) for(const fr of parser.feed(value)) handleFrame(fr);
+    }
+  }catch(e){ console.warn("okuma hatası",e); }
+  finally{ try{reader.releaseLock()}catch(_){} reader=null; }
+}
+async function openPort(p){
+  await p.open({baudRate:115200,dataBits:8,stopBits:1,parity:"none",bufferSize:1024,flowControl:$("hwflow").checked?"hardware":"none"});
+  port=p; parser=new Parser(); writer=port.writable.getWriter();
+  setStatus("on","Kayıt sürüyor");
+  readLoop().then(()=>{ if(recording){ setStatus("err","Bağlantı koptu, yeniden bağlanma bekleniyor"); cleanupPort(); } });
+  await send(packet(CMD_SESSION,0,1));
+  await send(packet(CMD_BAUD,0,5));          // 115200 = tablodaki 5. değer
+  for(const t of [T.MODEL,T.HW,T.FW]) await send(packet(CMD_GET,t,0));
+  await send(packet(CMD_GET,T.ALL,0));
+}
+async function cleanupPort(sendClose){
+  const p=port; port=null;
+  try{ if(sendClose&&writer){ await writer.write(packet(CMD_SESSION,0,0)); } }catch(_){}
+  try{ if(reader) await reader.cancel(); }catch(_){}
+  try{ if(writer) writer.releaseLock(); }catch(_){}
+  writer=null; writeChain=Promise.resolve();
+  try{ if(p) await p.close(); }catch(_){}
+}
+// cihaz kendiliğinden göndermiyorsa tam durumu sor; ayarları da 10 sn'de bir tazele
+let lastAll=0;
+setInterval(()=>{
+  if(!port||!writer||!recording) return;
+  const now=Date.now()/1000;
+  if(now-lastFrame>0.5 && now-lastPoll>0.5){ lastPoll=now; lastAll=now; polled++; send(packet(CMD_GET,T.ALL,0)); }
+  else if(now-lastAll>10){ lastAll=now; send(packet(CMD_GET,T.ALL,0)); }
+  if(recLimit && now-recStart>=recLimit){ stopRec("Süre doldu, kayıt tamamlandı"); }
+},250);
+if("serial" in navigator){
+  navigator.serial.addEventListener("connect",async e=>{
+    if(recording && !port){ try{ await openPort(e.target||e.port); }catch(err){ console.warn(err); } }
+  });
+}
+
+// ============================================================ başlat / durdur
+async function startRec(){
+  if(!("serial" in navigator)) return;
+  let p;
+  try{ p=await navigator.serial.requestPort(); }catch(_){ return; }
+  const info=await countRows();
+  if(info.n && !resumeMode){
+    if(confirm(`Tarayıcıda önceki bir kayıt var (${info.n} örnek).\n\nTamam: silip yeni kayıt başlat\nİptal: önceki kayda ekle`)){ await clearDB(); agg=new Agg(manualA()); ring=[]; }
+    else resumeMode=true;
+  }
+  recStart=Date.now()/1000; recLimit=+$("dur").value; polled=0; frames=0;
+  recording=true; $("resume").classList.remove("show");
+  try{ await openPort(p); }
+  catch(e){ recording=false; setStatus("err","Port açılamadı: "+e.message); updateButtons(); return; }
+  updateButtons(); acquireWake();
+}
+async function stopRec(msg){
+  if(!recording) return;
+  recording=false; await cleanupPort(true); await flush(); if(agg.cur) agg.closeEvent();
+  setStatus("", msg||"Kayıt durduruldu");
+  resumeMode=true; updateButtons(); releaseWake();
+}
+function updateButtons(){
+  $("btnConnect").disabled=recording; $("btnStop").disabled=!recording;
+  $("btnClear").disabled=recording; $("fileImport").disabled=recording; $("hwflow").disabled=recording;
+  $("btnConnect").textContent=resumeMode&&agg.n?"Bağlan ve devam et":"Bağlan ve kaydet";
+}
+function setStatus(cls,text){ $("dot").className="dot"+(cls?" "+cls:""); $("status").textContent=text; }
+async function acquireWake(){ try{ if("wakeLock" in navigator && document.visibilityState==="visible" && recording) wakeLock=await navigator.wakeLock.request("screen"); }catch(_){} }
+function releaseWake(){ try{wakeLock&&wakeLock.release()}catch(_){} wakeLock=null; }
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") acquireWake(); });
+window.addEventListener("beforeunload",e=>{ if(recording){ flush(); e.preventDefault(); e.returnValue=""; } });
+
+async function rebuild(){
+  await flush();
+  rebuilding=[];
+  const a=new Agg(manualA()), r=[], cut=Date.now()/1000-3700;
+  keyCache.h=-1;
+  await eachChunk(arr=>{ for(let k=0;k<arr.length;k+=ROW){ a.add(arr[k],arr[k+1],arr[k+2],arr[k+3]); if(arr[k]>cut) r.push([arr[k],arr[k+1],arr[k+2],arr[k+3]]); } });
+  for(const row of rebuilding){ a.add(...row); r.push(row); }
+  rebuilding=null; agg=a; ring=r.filter(x=>x[0]>cut);
+}
+
+// ============================================================ arayüz
+let tab="saatlik", win=600, hoverX=null;
+function segBind(id,fn){ $(id).addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  for(const x of $(id).children)x.classList.toggle("act",x===b); fn(b); }); }
+segBind("tabs",b=>{tab=b.dataset.t;render(true)});
+segBind("win",b=>{win=+b.dataset.w;drawChart()});
+for(const id of ["showV","showI","showP"]) $(id).onchange=drawChart;
+$("btnConnect").onclick=startRec;
+$("btnStop").onclick=()=>stopRec();
+$("dbg").onchange=()=>{$("debug").style.display=$("dbg").checked?"block":"none"};
+const setHTML=(id,h)=>{const e=$(id); if(e._h!==h){e.innerHTML=h;e._h=h}};
+const html=(id,val,unit)=>{ $(id).innerHTML=val+(unit?`<small>${unit}</small>`:""); };
+function tag(id,text,cls){ const e=$(id); e.textContent=text; e.className="tag"+(cls?" "+cls:""); }
+
+function render(force){
+  const L=st.last, S=st.settings;
+  html("mV",L?L.v.toFixed(3):"–","V");
+  const [iv,iu]=fmtI(L?L.i:NaN); html("mI",iv,iu);
+  const [pv,pu]=fmtP(L?L.p:NaN); html("mP",pv,pu);
+  const canSet=!!(port&&writer&&S), cls=canSet?"set":"set dis";
+  const sv=k=>S?S[k].toFixed(SETT[k].dig)+" "+SETT[k].unit:"–";
+  setHTML("mVsub",`<span class="${cls}" data-k="vset">Ayar ${sv("vset")}</span> · <span class="${cls}" data-k="ovp">OVP ${sv("ovp")}</span>`);
+  setHTML("mIsub",`<span class="${cls}" data-k="iset">Sınır ${sv("iset")}</span> · <span class="${cls}" data-k="ocp">OCP ${sv("ocp")}</span>`);
+  $("mPsub").textContent=L&&L.i>0?`Yük direnci ≈ ${(L.v/L.i)>=1000?(L.v/L.i/1000).toFixed(2)+" kΩ":(L.v/L.i).toFixed(1)+" Ω"}`:" ";
+  const I=st.info;
+  if(I[T.MODEL]) $("model").textContent=`${I[T.MODEL]} · donanım ${I[T.HW]||"?"} · yazılım ${I[T.FW]||"?"}`;
+  $("cVin").textContent=Number.isFinite(st.vin)?st.vin.toFixed(2)+" V":"–";
+  $("cTemp").textContent=Number.isFinite(st.temp)?st.temp.toFixed(1)+" °C":"–";
+
+  const live=recording&&port;
+  tag("tMode",st.mode===0?"CC":st.mode===1?"CV":"–",live?(st.mode===0?"warn":st.mode===1?"ok":""):"");
+  tag("tProt",live?(st.prot?(PROT_NAMES[st.prot]||st.prot):"OK"):"–",live?(st.prot?"bad":"ok"):"");
+  tag("tOut",live&&st.outOn!==null?(st.outOn?"Açık":"Kapalı"):"–",live&&st.outOn!==null?(st.outOn?"ok":"warn"):"");
+  const ob=$("btnOut"); ob.disabled=!live||st.outOn===null||outBusy;
+  ob.className="outbtn "+(live&&st.outOn?"on":"off");
+  ob.textContent=!live?"ÇIKIŞ":outBusy?"…":st.outOn?"ÇIKIŞ AÇIK · KAPAT":"ÇIKIŞI AÇ";
+  tag("tRec",recording?"● "+fmtDur(Date.now()/1000-recStart):agg.n?"Durdu":"–",recording?"bad":"");
+
+  const al=$("alert"); al.className="banner";
+  if(recording){
+    if(st.prot){al.className="banner bad show";al.textContent=`${PROT_NAMES[st.prot]||st.prot} koruması devrede: çıkış kesilmiş olabilir, bu süredeki ölçüm geçersizdir. Cihazdaki koruma ayarını kontrol edin.`}
+    else if(st.mode===0&&L&&L.i>0.001){al.className="banner warn show";al.textContent="Cihaz CC moduna geçti (akım sınırına dayandı). Gerilim düşmüş olabilir; akım sınırını yükseltin."}
+    else if(st.outOn===false){al.className="banner warn show";al.textContent="DPS-150 çıkışı kapalı. Sağdaki ÇIKIŞ düğmesiyle açabilirsiniz."}
+    else if(port && Date.now()/1000-recStart>5 && frames===0){al.className="banner warn show";al.textContent="Cihazdan veri gelmiyor. Durdurup 'Donanım akış kontrolü' ayarını değiştirerek yeniden bağlanın."}
+  }
+
+  const t=agg.tot, med=agg.median();
+  html("sDur",t.t?fmtDur(t.t):"–");
+  html("sN",agg.n?agg.n.toLocaleString("tr-TR"):"–",med?(med*1000).toFixed(0)+" ms":"");
+  if(t.t){
+    const [a,au]=fmtI(t.q/t.t,3); html("sI",a,au);
+    const [mn]=fmtI(t.imin), [mx,mxu]=fmtI(t.imax); html("sMM",`${mn} / ${mx}`,mxu);
+    html("sV",(t.vt/t.t).toFixed(3),"V");
+    const [p_,pu_]=fmtP(t.e/t.t); html("sP",p_,pu_);
+    html("sQ",(t.q/3.6).toFixed(3),"mAh");
+    html("sE",(t.e/3.6).toFixed(2),"mWh");
+  }else for(const id of ["sI","sMM","sV","sP","sQ","sE"]) html(id,"–");
+
+  renderMotor(force);
+  if($("dbg").checked) $("debug").textContent=dbgLines.join("\n");
+  renderTable(force); drawChart(); drawBars(); drawEvBars();
+}
+setInterval(()=>render(false),1000);
+
+// ------------------------------------------------------------ cihaz kontrolü
+let outBusy=false;
+const connected=()=>!!(port&&writer);
+$("btnOut").onclick=async()=>{
+  if(!connected()||st.outOn===null) return;
+  const on=!st.outOn;
+  outBusy=true; render(false);
+  await send(packet(CMD_SET,T.CLOSED,on?1:0));
+  await send(packet(CMD_GET,T.ALL,0));
+  setTimeout(()=>{outBusy=false;render(false)},400);
+};
+let dlgKey=null;
+document.addEventListener("click",e=>{
+  const el=e.target.closest(".set"); if(!el||el.classList.contains("dis")||!st.settings) return;
+  const k=el.dataset.k, D=SETT[k]; dlgKey=k;
+  $("dlgTitle").textContent=D.name;
+  $("dlgHint").textContent=`Şu an ${st.settings[k].toFixed(D.dig)} ${D.unit} · aralık ${D.min}–${D.max} ${D.unit}`;
+  const inp=$("dlgVal"); inp.min=D.min; inp.max=D.max; inp.step=D.step; inp.value=st.settings[k].toFixed(D.dig);
+  $("dlgUnit").textContent=D.unit;
+  $("dlg").showModal(); inp.select();
+});
+$("dlg").addEventListener("close",async()=>{
+  if($("dlg").returnValue!=="ok"||!dlgKey||!connected()) return;
+  const D=SETT[dlgKey], val=parseFloat($("dlgVal").value.replace(",","."));
+  if(!Number.isFinite(val)||val<D.min||val>D.max){ alert(`Geçersiz değer. Aralık: ${D.min}–${D.max} ${D.unit}`); return; }
+  if(dlgKey==="vset"&&st.outOn&&st.settings&&val>st.settings.vset+0.5&&
+     !confirm(`Çıkış açık. Gerilim ${st.settings.vset.toFixed(2)} V → ${val.toFixed(2)} V'a çıkacak ve karta hemen uygulanacak. Devam edilsin mi?`)) return;
+  if(dlgKey==="vset"&&st.settings&&val>st.settings.ovp) alert(`Not: ${val.toFixed(2)} V, OVP değerinin (${st.settings.ovp.toFixed(2)} V) üzerinde; cihaz korumaya geçebilir.`);
+  await send(packet(CMD_SET,D.typ,fbytes(val)));
+  await send(packet(CMD_GET,T.ALL,0));
+});
+$("dlgVal").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("dlg").close("ok"); } });
+
+// ------------------------------------------------------------ motor çalışmaları
+const ago=s=>s<60?Math.floor(s)+" sn önce":s<3600?Math.floor(s/60)+" dk önce":s<86400?Math.floor(s/3600)+" sa önce":Math.floor(s/86400)+" g önce";
+function renderMotor(force){
+  const E=agg.events, n=E.length, th=agg.thr();
+  if(agg.cur) tag("runTag","● ÇALIŞIYOR","run"); else tag("runTag",n?"Beklemede":"Çalışma yok","");
+  $("thrInfo").textContent=agg.idle===null?"":th.auto?`Otomatik: bekleme ${(agg.idle*1000).toFixed(1)} mA → eşik ${(th.on*1000).toFixed(1)} mA`:`Bitiş eşiği ${(th.off*1000).toFixed(1)} mA`;
+  html("eN",n?n.toLocaleString("tr-TR"):"0");
+  const now=Date.now()/1000, today=keysFor(now).gunluk;
+  const tday=agg.b.gunluk.get(today)?.ev||0; let h1=0; for(let k=n-1;k>=0&&E[k].start>now-3600;k--) h1++;
+  html("eToday",`${tday} · ${h1}`);
+  if(n){
+    const L=E[n-1];
+    html("eLast",`${L.dur.toFixed(1)}`,"s · "+ago(now-L.end));
+    const [pk,pku]=fmtI(L.peak,1); html("eLastPk",pk,pku);
+    let sd=0,sp=0,mx=0,sq=0; for(const e of E){sd+=e.dur;sp+=e.peak;sq+=e.q;if(e.peak>mx)mx=e.peak}
+    html("eDur",(sd/n).toFixed(2),"s");
+    html("ePk",`${(sp/n*1000).toFixed(0)} / ${(mx*1000).toFixed(0)}`,"mA");
+    html("eQ",(sq/n/3.6).toFixed(4),"mAh");
+    html("eShare",agg.tot.q?(sq/agg.tot.q*100).toFixed(1):"–","%");
+  }else for(const id of ["eLast","eLastPk","eDur","ePk","eQ","eShare"]) html(id,"–");
+  // tablo
+  const sig=n+"|"+(n?E[n-1].start:0);
+  if(!force&&sig===renderMotor.sig) return; renderMotor.sig=sig;
+  const head=["No","Başlangıç","Süre (s)","Tepe akım (mA)","Ort. akım (mA)","Min. gerilim (V)","Yük (mAh)"];
+  let h="<thead><tr>"+head.map(x=>`<th>${x}</th>`).join("")+"</tr></thead><tbody>";
+  if(!n) h+=`<tr><td class="empty" colspan="${head.length}">Henüz motor çalışması algılanmadı</td></tr>`;
+  for(let k=n-1;k>=Math.max(0,n-500);k--){const e=E[k];
+    h+=`<tr><td>${k+1}</td><td>${fmtTime(e.start)}</td><td>${e.dur.toFixed(2)}</td><td>${(e.peak*1000).toFixed(1)}</td><td>${e.dur>0?(e.q/e.dur*1000).toFixed(1):"–"}</td><td>${e.vmin.toFixed(3)}</td><td>${(e.q/3.6).toFixed(4)}</td></tr>`}
+  if(n>500) h+=`<tr><td class="empty" colspan="${head.length}">Son 500 çalışma gösteriliyor, tamamı için CSV indirin</td></tr>`;
+  $("evtbl").innerHTML=h+"</tbody>";
+}
+function drawEvBars(){
+  const {g,W,H}=setupCanvas($("evbars"));
+  const all=agg.events, ev=all.slice(-100);
+  const L=60,R=16,Tp=20,B=24, pw=W-L-R, ph=H-Tp-B;
+  g.fillStyle=css("--muted"); g.textAlign="left";
+  g.fillText("Çalışma başına tepe akım"+(all.length>100?" · son 100 çalışma":""),L,10);
+  if(!ev.length){g.textAlign="center";g.fillText("Henüz motor çalışması yok",L+pw/2,Tp+ph/2);return}
+  let mx=0; for(const e of ev) mx=Math.max(mx,e.peak*1000);
+  const st_=niceStep(mx*1.15/4)||1; mx=Math.ceil(mx*1.15/st_)*st_;
+  g.lineWidth=1; g.textAlign="right";
+  for(let v=0;v<=mx+st_*1e-6;v+=st_){const y=Math.round(Tp+ph-v/mx*ph)+.5;g.strokeStyle=css("--grid");g.beginPath();g.moveTo(L,y);g.lineTo(W-R,y);g.stroke();g.fillStyle=css("--i");g.fillText(fmtTick(v,st_),L-8,y+4)}
+  g.save();g.translate(12,Tp+ph/2);g.rotate(-Math.PI/2);g.textAlign="center";g.fillStyle=css("--i");g.fillText("mA",0,0);g.restore();
+  const avg=ev.reduce((s,e)=>s+e.peak,0)/ev.length*1000;
+  const bw=pw/Math.max(ev.length,30), gap=Math.max(1,Math.min(4,bw*0.25));
+  ev.forEach((e,n)=>{const h=e.peak*1000/mx*ph;g.fillStyle=css("--i");g.globalAlpha=e.peak*1000>avg*1.25?1:.75;g.fillRect(L+n*bw+gap/2,Tp+ph-h,bw-gap,h)});
+  g.globalAlpha=1;
+  const ya=Tp+ph-avg/mx*ph; g.setLineDash([4,4]); g.strokeStyle=css("--ink"); g.beginPath(); g.moveTo(L,ya); g.lineTo(W-R,ya); g.stroke(); g.setLineDash([]);
+  g.fillStyle=css("--ink"); g.textAlign="right"; g.fillText(`ort. ${avg.toFixed(0)} mA`,W-R-2,ya-4);
+  g.fillStyle=css("--muted"); g.textAlign="left"; g.fillText(fmtTime(ev[0].start),L,H-6); g.textAlign="right"; g.fillText(fmtTime(ev[ev.length-1].start),W-R,H-6);
+}
+let thrTimer=null;
+$("thr").addEventListener("input",()=>{ clearTimeout(thrTimer); thrTimer=setTimeout(async()=>{
+  try{localStorage.setItem("dps150_thr",$("thr").value)}catch(_){}
+  await rebuild(); render(true); },600); });
+$("btnCsvEv").onclick=()=>{
+  const rows=[["no","baslangic","sure_s","tepe_akim_mA","ort_akim_mA","min_gerilim_V","yuk_mAh"]];
+  agg.events.forEach((e,k)=>rows.push([k+1,fmtTime(e.start),e.dur.toFixed(3),(e.peak*1000).toFixed(2),e.dur>0?(e.q/e.dur*1000).toFixed(2):"",e.vmin.toFixed(3),(e.q/3.6).toFixed(5)]));
+  download(`dps150_motor_${stamp()}.csv`,[rows.map(r=>r.join(";")).join("\r\n")]);
+};
+
+// ------------------------------------------------------------ tablo
+function tableData(){
+  const head=["Periyot","Kapsama %","Ort. gerilim (V)","Ort. akım (mA)","Min. akım (mA)","Maks. akım (mA)","Ort. güç (mW)","Yük (mAh)","Enerji (mWh)","Motor çalışması"];
+  const rows=[], partial=[];
+  for(const [k,x] of agg.b[tab]){
+    const cov=x.t/PLEN[tab]*100;
+    rows.push([k,cov.toFixed(1),(x.vt/x.t).toFixed(3),(x.q/x.t*1000).toFixed(3),(x.min*1000).toFixed(2),(x.max*1000).toFixed(2),
+      (x.e/x.t*1000).toFixed(2),(x.q/3.6).toFixed(3),(x.e/3.6).toFixed(2),x.ev]);
+    partial.push(cov<99.5);
+  }
+  return{head,rows:rows.reverse(),partial:partial.reverse()};
+}
+let lastSig="";
+function renderTable(force){
+  const {head,rows,partial}=tableData();
+  const sig=tab+rows.length+(rows[0]||[]).join();
+  if(!force&&sig===lastSig) return; lastSig=sig;
+  const shown=rows.slice(0,1000);
+  let h="<thead><tr>"+head.map(x=>`<th>${x}</th>`).join("")+"</tr></thead><tbody>";
+  if(!shown.length) h+=`<tr><td class="empty" colspan="${head.length}">Henüz veri yok</td></tr>`;
+  shown.forEach((r,k)=>{h+=`<tr${partial[k]?' class="partial" title="Bu periyodun tamamı ölçülmedi"':""}>`+r.map(x=>`<td>${x}</td>`).join("")+"</tr>"});
+  $("tbl").innerHTML=h+"</tbody>";
+}
+
+// ------------------------------------------------------------ grafikler
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function niceStep(x){if(!(x>0))return 1;const p=Math.pow(10,Math.floor(Math.log10(x)));const m=x/p;return(m<=1?1:m<=2?2:m<=5?5:10)*p}
+function niceRange(lo,hi){
+  if(!Number.isFinite(lo)){lo=0;hi=1}
+  if(hi-lo<1e-9){const c=hi;lo=c-Math.max(Math.abs(c)*0.05,0.01);hi=c+Math.max(Math.abs(c)*0.05,0.01)}
+  const pad_=(hi-lo)*0.08; lo-=pad_; hi+=pad_; if(lo<0&&(hi-lo)>0) lo=Math.max(lo,0);
+  const st=niceStep((hi-lo)/5); return {lo:Math.floor(lo/st)*st,hi:Math.ceil(hi/st)*st,st};
+}
+function setupCanvas(c){
+  const dpr=window.devicePixelRatio||1, W=c.clientWidth, H=c.clientHeight;
+  if(c.width!==Math.round(W*dpr)||c.height!==Math.round(H*dpr)){c.width=Math.round(W*dpr);c.height=Math.round(H*dpr)}
+  const g=c.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+  g.font="11px 'Segoe UI', system-ui, sans-serif"; return {g,W,H};
+}
+const fmtTick=(v,st)=>{const d=st<0.001?4:st<0.01?3:st<0.1?2:st<1?1:0;return v.toFixed(d)};
+let chartBins=null, chartGeom=null;
+
+// görünen aralıktaki veriyi piksel sütunlarına indir (ort. V/I/P, min/maks akım)
+function binned(t0,t1,cols){
+  const span=t1-t0;
+  // ham veri son 1 saati tutar; aralık oradan karşılanabiliyorsa ham, değilse 10 sn'lik özet kullanılır
+  const raw=span<=3700&&ring.length>0&&(ring[0][0]<=t0+COARSE||(agg.first!==null&&agg.first>=ring[0][0]-1));
+  const out=new Array(cols); const dur=span/cols;
+  const put=(t,v,i,p,n,imin,imax)=>{
+    const k=Math.floor((t-t0)/dur); if(k<0||k>=cols) return;
+    let b=out[k]; if(!b){b=out[k]={t:0,v:0,i:0,p:0,n:0,imin:Infinity,imax:-Infinity}}
+    b.t+=t*n;b.v+=v;b.i+=i;b.p+=p;b.n+=n; if(imin<b.imin)b.imin=imin; if(imax>b.imax)b.imax=imax;
+  };
+  if(raw){ for(const r of ring) if(r[0]>=t0&&r[0]<=t1) put(r[0],r[1],r[2],r[3],1,r[2],r[2]); }
+  else { for(const c of agg.coarse) if(c.t+COARSE>=t0&&c.t<=t1) put(c.t+COARSE/2,c.v,c.i,c.p,c.n,c.imin,c.imax); }
+  const res=[]; for(const b of out) if(b){res.push({t:b.t/b.n,v:b.v/b.n,i:b.i/b.n,p:b.p/b.n,imin:b.imin,imax:b.imax,n:b.n})}
+  return {pts:res,dur};
+}
+function drawChart(){
+  const c=$("chart"); const {g,W,H}=setupCanvas(c);
+  const now=recording?Date.now()/1000:(agg.last??Date.now()/1000);
+  let t0,t1=now;
+  if(win===0){ t0=agg.first??now-600; if(t1-t0<60) t0=t1-60; } else t0=now-win;
+  const span=t1-t0;
+  const show={v:$("showV").checked,i:$("showI").checked,p:$("showP").checked};
+  const leftKey=show.v?"v":show.p?"p":null, rightKey=show.i?"i":(show.v&&show.p?"p":null);
+  const L=leftKey?60:16, R=rightKey?64:16, Tp=12, B=26, pw=W-L-R, ph=H-Tp-B;
+  const {pts,dur}=binned(t0,t1,Math.max(50,Math.floor(pw)));
+  chartBins=pts; chartGeom={L,R,Tp,B,pw,ph,t0,t1,W,H};
+  const X=t=>L+(t-t0)/span*pw;
+  const DEF={v:{col:css("--v"),unit:"V",mul:1},i:{col:css("--i"),unit:"mA",mul:1000},p:{col:css("--p"),unit:"mW",mul:1000}};
+  const rng={};
+  for(const k of ["v","i","p"]) if(show[k]){
+    let lo=Infinity,hi=-Infinity;
+    for(const b of pts){const lv=k==="i"?b.imin:b[k], hv=k==="i"?b.imax:b[k]; if(lv<lo)lo=lv; if(hv>hi)hi=hv;}
+    if(k!=="v"){ lo=Math.min(lo,0); }
+    rng[k]=niceRange(lo*DEF[k].mul,hi*DEF[k].mul);
+  }
+  const Y=(k,val)=>{const r=rng[k];return Tp+ph-(val*DEF[k].mul-r.lo)/(r.hi-r.lo)*ph};
+  // ızgara + eksenler
+  const gridKey=leftKey||rightKey;
+  g.lineWidth=1;
+  if(gridKey){const r=rng[gridKey];for(let v=r.lo;v<=r.hi+r.st*1e-6;v+=r.st){const y=Math.round(Tp+ph-(v-r.lo)/(r.hi-r.lo)*ph)+.5;g.strokeStyle=css("--grid");g.beginPath();g.moveTo(L,y);g.lineTo(W-R,y);g.stroke()}}
+  const axis=(k,side)=>{const r=rng[k];g.fillStyle=DEF[k].col;g.textAlign=side==="l"?"right":"left";
+    for(let v=r.lo;v<=r.hi+r.st*1e-6;v+=r.st){const y=Tp+ph-(v-r.lo)/(r.hi-r.lo)*ph;g.fillText(fmtTick(v,r.st),side==="l"?L-8:W-R+8,y+4)}
+    g.save();g.translate(side==="l"?12:W-6,Tp+ph/2);g.rotate(-Math.PI/2);g.textAlign="center";g.fillText(DEF[k].unit,0,0);g.restore()};
+  if(leftKey) axis(leftKey,"l"); if(rightKey) axis(rightKey,"r");
+  g.strokeStyle=css("--line"); g.beginPath(); g.moveTo(L,Tp+ph+.5); g.lineTo(W-R,Tp+ph+.5); g.stroke();
+  // zaman ekseni
+  g.fillStyle=css("--muted");
+  const tf=t=>{const d=new Date(t*1000);return span<=600?pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds()):span<=86400?pad(d.getHours())+":"+pad(d.getMinutes()):pad(d.getDate())+"."+pad(d.getMonth()+1)+" "+pad(d.getHours())+":"+pad(d.getMinutes())};
+  const nt=Math.max(2,Math.min(8,Math.floor(pw/110)));
+  for(let k=0;k<=nt;k++){const t=t0+span*k/nt,x=X(t);g.textAlign=k===0?"left":k===nt?"right":"center";g.fillText(tf(t),x,H-8);
+    g.strokeStyle=css("--grid");g.beginPath();g.moveTo(Math.round(x)+.5,Tp);g.lineTo(Math.round(x)+.5,Tp+ph);g.stroke()}
+  if(!pts.length){g.fillStyle=css("--muted");g.textAlign="center";g.font="13px 'Segoe UI', system-ui, sans-serif";g.fillText(agg.n?"Bu aralıkta veri yok":"Ölçüm bekleniyor",L+pw/2,Tp+ph/2);$("wstats").innerHTML="";return}
+  const brk=Math.max(GAP,dur*3);
+  // motor çalışmalarını gölgele
+  if(show.i){ g.fillStyle=DEF.i.col; g.globalAlpha=.07;
+    const evs=agg.cur?[...agg.events,{start:agg.cur.start,end:agg.last}]:agg.events;
+    for(let k=evs.length-1;k>=0;k--){const e=evs[k]; if(e.end<t0) break; if(e.start>t1) continue;
+      const x0=Math.max(L,X(e.start)), x1=Math.min(W-R,X(e.end)); g.fillRect(x0,Tp,Math.max(1,x1-x0),ph)}
+    g.globalAlpha=1; }
+  // akım min/maks bandı
+  if(show.i&&pts.some(b=>b.imax-b.imin>1e-6)){
+    g.fillStyle=DEF.i.col; g.globalAlpha=.16;
+    let seg=[];
+    const fillSeg=()=>{if(seg.length<2){seg=[];return}g.beginPath();seg.forEach((b,n)=>{const x=X(b.t);n?g.lineTo(x,Y("i",b.imax)):g.moveTo(x,Y("i",b.imax))});
+      for(let n=seg.length-1;n>=0;n--)g.lineTo(X(seg[n].t),Y("i",seg[n].imin));g.closePath();g.fill();seg=[]};
+    let pt=null; for(const b of pts){ if(pt!==null&&b.t-pt>brk) fillSeg(); seg.push(b); pt=b.t; } fillSeg();
+    g.globalAlpha=1;
+  }
+  for(const k of ["p","v","i"]) if(show[k]){
+    g.strokeStyle=DEF[k].col; g.lineWidth=1.7; g.lineJoin="round"; g.beginPath();
+    let pt=null; for(const b of pts){const x=X(b.t),y=Y(k,b[k]); if(pt===null||b.t-pt>brk) g.moveTo(x,y); else g.lineTo(x,y); pt=b.t}
+    g.stroke();
+  }
+  // P iki eksende de yoksa (V ve I açıkken) ölçek notu
+  const pNote=show.p&&leftKey!=="p"&&rightKey!=="p"?`<span style="color:var(--p)">Güç ekseni ${fmtTick(rng.p.lo,rng.p.st)}–${fmtTick(rng.p.hi,rng.p.st)} mW</span>`:"";
+  // fare imleci
+  if(hoverX!==null&&hoverX>=L&&hoverX<=W-R){
+    let best=null,bd=Infinity; for(const b of pts){const d=Math.abs(X(b.t)-hoverX); if(d<bd){bd=d;best=b}}
+    if(best&&bd<40){
+      const x=X(best.t);
+      g.strokeStyle=css("--muted"); g.setLineDash([3,3]); g.beginPath(); g.moveTo(Math.round(x)+.5,Tp); g.lineTo(Math.round(x)+.5,Tp+ph); g.stroke(); g.setLineDash([]);
+      const lines=[[css("--ink"),fmtTime(best.t)+(best.n>1?`  (${best.n} örnek ort.)`:"")]];
+      lines.push([DEF.v.col,"Gerilim  "+best.v.toFixed(3)+" V"]);
+      lines.push([DEF.i.col,"Akım     "+(best.i*1000).toFixed(2)+" mA"+(best.imax-best.imin>1e-6?`  [${(best.imin*1000).toFixed(1)} – ${(best.imax*1000).toFixed(1)}]`:"")]);
+      lines.push([DEF.p.col,"Güç      "+(best.p*1000).toFixed(1)+" mW"]);
+      for(const k of ["v","i","p"]) if(show[k]){g.fillStyle=DEF[k].col;g.beginPath();g.arc(x,Y(k,best[k]),3.5,0,7);g.fill()}
+      g.font="12px "+css("--mono"); const w=Math.max(...lines.map(l=>g.measureText(l[1]).width))+20, h=lines.length*17+10;
+      let bx=x+12; if(bx+w>W-R) bx=x-12-w; const by=Tp+8;
+      g.fillStyle=css("--panel"); g.strokeStyle=css("--line"); g.beginPath(); g.roundRect?g.roundRect(bx,by,w,h,6):g.rect(bx,by,w,h); g.fill(); g.stroke();
+      g.textAlign="left"; lines.forEach((l,n)=>{g.fillStyle=l[0];g.fillText(l[1],bx+10,by+19+n*17)});
+    }
+  }
+  // görünen aralık istatistikleri
+  let n=0,si=0,sv=0,sp=0,mn=Infinity,mx=-Infinity;
+  for(const b of pts){n+=b.n;si+=b.i*b.n;sv+=b.v*b.n;sp+=b.p*b.n;if(b.imin<mn)mn=b.imin;if(b.imax>mx)mx=b.imax}
+  $("wstats").innerHTML=`<span>Görünen aralık</span><span>Ort. gerilim <b>${(sv/n).toFixed(3)} V</b></span><span>Ort. akım <b>${(si/n*1000).toFixed(2)} mA</b></span><span>Min / maks. akım <b>${(mn*1000).toFixed(2)} / ${(mx*1000).toFixed(2)} mA</b></span><span>Ort. güç <b>${(sp/n*1000).toFixed(1)} mW</b></span>${pNote}`;
+}
+$("chart").addEventListener("mousemove",e=>{const r=e.target.getBoundingClientRect();hoverX=e.clientX-r.left;drawChart()});
+$("chart").addEventListener("mouseleave",()=>{hoverX=null;drawChart()});
+
+function drawBars(){
+  const {g,W,H}=setupCanvas($("bars"));
+  const all=[...agg.b[tab]]; const maxN=tab==="saatlik"?48:tab==="gunluk"?31:26;
+  const items=all.slice(-maxN);
+  const L=60,R=16,Tp=20,B=34, pw=W-L-R, ph=H-Tp-B;
+  g.fillStyle=css("--muted"); g.textAlign="left";
+  g.fillText({saatlik:"Saatlik",gunluk:"Günlük",haftalik:"Haftalık"}[tab]+" ortalama akım"+(all.length>maxN?` · son ${maxN} periyot`:""),L,10);
+  if(!items.length){g.textAlign="center";g.fillText("Henüz veri yok",L+pw/2,Tp+ph/2);return}
+  let mx=0; for(const [,x] of items) mx=Math.max(mx,x.q/x.t*1000);
+  const st=niceStep(mx*1.15/4)||1; mx=Math.ceil(mx*1.15/st)*st||1;
+  g.lineWidth=1; g.textAlign="right";
+  for(let v=0;v<=mx+st*1e-6;v+=st){const y=Math.round(Tp+ph-v/mx*ph)+.5;g.strokeStyle=css("--grid");g.beginPath();g.moveTo(L,y);g.lineTo(W-R,y);g.stroke();g.fillStyle=css("--i");g.fillText(fmtTick(v,st),L-8,y+4)}
+  g.save();g.translate(12,Tp+ph/2);g.rotate(-Math.PI/2);g.textAlign="center";g.fillStyle=css("--i");g.fillText("mA",0,0);g.restore();
+  const bw=pw/maxN, gap=Math.max(1,Math.min(5,bw*0.22)), every=Math.ceil(items.length/(pw/56));
+  items.forEach(([k,x],n)=>{
+    const avg=x.q/x.t*1000, h=avg/mx*ph, xx=L+n*bw+gap/2, y=Tp+ph-h, partial=x.t/PLEN[tab]<0.995;
+    g.fillStyle=css("--i"); g.globalAlpha=partial?.4:.9; g.fillRect(xx,y,bw-gap,h); g.globalAlpha=1;
+    if(bw>40){g.fillStyle=css("--ink");g.textAlign="center";g.fillText(avg.toFixed(avg<10?2:1),xx+(bw-gap)/2,y-4)}
+    if(n%every===0){g.fillStyle=css("--muted");g.textAlign="center";
+      const lab=tab==="saatlik"?k.slice(11,16):tab==="gunluk"?k.slice(8,10)+"."+k.slice(5,7):k.slice(5);
+      g.fillText(lab,xx+(bw-gap)/2,H-B+15);
+      if(tab==="saatlik"&&(n===0||k.slice(11,13)==="00")) g.fillText(k.slice(8,10)+"."+k.slice(5,7),xx+(bw-gap)/2,H-B+28)}
+  });
+}
+window.addEventListener("resize",()=>{drawChart();drawBars()});
+
+// ------------------------------------------------------------ CSV
+function download(name,parts){
+  const url=URL.createObjectURL(new Blob(["﻿",...parts],{type:"text/csv;charset=utf-8"}));
+  const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),5000);
+}
+const stamp=()=>{const d=new Date();return d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+"_"+pad(d.getHours())+pad(d.getMinutes())};
+$("btnCsvTab").onclick=()=>{
+  const {head,rows}=tableData();
+  download(`dps150_${tab}_${stamp()}.csv`,[[head,...rows.slice().reverse()].map(r=>r.join(";")).join("\r\n")]);
+};
+$("btnCsvRaw").onclick=async()=>{
+  await flush();
+  const parts=["unix_time,iso_time,voltage_V,current_A,power_W,input_V,temp_C,mod,koruma\r\n"];
+  await eachChunk(a=>{
+    let s="";
+    for(let k=0;k<a.length;k+=ROW){
+      const d=new Date(a[k]*1000);
+      const iso=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds())+"."+String(d.getMilliseconds()).padStart(3,"0");
+      s+=`${a[k].toFixed(3)},${iso},${a[k+1].toFixed(4)},${a[k+2].toFixed(5)},${a[k+3].toFixed(5)},${Number.isFinite(a[k+4])?a[k+4].toFixed(3):""},${Number.isFinite(a[k+5])?a[k+5].toFixed(1):""},${a[k+6]===0?"CC":a[k+6]===1?"CV":""},${PROT_NAMES[a[k+7]]||""}\r\n`;
+    }
+    parts.push(s);
+  });
+  download(`dps150_ham_${stamp()}.csv`,parts);
+};
+$("btnClear").onclick=async()=>{
+  if(!confirm("Tarayıcıdaki kayıt kalıcı olarak silinecek. Önce ham veriyi CSV olarak indirdiğinizden emin olun. Silinsin mi?")) return;
+  await clearDB(); agg=new Agg(manualA()); ring=[]; st.last=null; resumeMode=false;
+  $("resume").classList.remove("show"); updateButtons(); render(true);
+};
+$("fileImport").onchange=async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const info=await countRows();
+  if(info.n && !confirm(`İçe aktarılan dosya tarayıcıdaki mevcut kaydın (${info.n} örnek) yerine geçecek. Devam edilsin mi?`)){ e.target.value=""; return; }
+  const text=await f.text(); const lines=text.replace(/^﻿/,"").split(/\r?\n/);
+  const h=lines[0].split(","); const ix=n=>h.indexOf(n);
+  const it=ix("unix_time"),iv=ix("voltage_V"),ii=ix("current_A"),ip=ix("power_W"),ivin=ix("input_V"),itp=ix("temp_C");
+  if(it<0||ii<0){ alert("CSV başlığında unix_time / current_A sütunları bulunamadı."); e.target.value=""; return; }
+  await clearDB();
+  let buf=[];
+  for(let k=1;k<lines.length;k++){
+    const c=lines[k].split(","); if(c.length<3) continue;
+    const t=+c[it], i=+c[ii]; if(!Number.isFinite(t)||!Number.isFinite(i)) continue;
+    buf.push(t,+c[iv]||0,i,+c[ip]||0,ivin>=0&&c[ivin]!==""?+c[ivin]:NaN,itp>=0&&c[itp]!==""?+c[itp]:NaN,-1,0);
+    if(buf.length>=ROW*5000){await putChunk(new Float64Array(buf));buf=[]}
+  }
+  if(buf.length) await putChunk(new Float64Array(buf));
+  e.target.value=""; await rebuild(); resumeMode=true; updateButtons(); render(true);
+};
+
+// ============================================================ açılış
+(async()=>{
+  if(!("serial" in navigator)){ $("nosupport").classList.add("show"); $("btnConnect").disabled=true; }
+  try{ const v=localStorage.getItem("dps150_thr"); if(v) $("thr").value=v; }catch(_){}
+  agg=new Agg(manualA());
+  try{ db=await openDB(); }catch(e){ console.warn("IndexedDB kullanılamıyor; kayıt yalnızca bellekte tutulacak",e); }
+  const info=await countRows();
+  if(info.n){
+    await rebuild(); resumeMode=true;
+    const r=$("resume"); r.classList.add("show");
+    r.innerHTML=`Önceki kayıt yüklendi: <b>${info.n.toLocaleString("tr-TR")}</b> örnek, ${fmtTime(info.first)} – ${fmtTime(info.last)}. "Bağlan ve devam et" ile eklemeye devam edebilir veya ayarlardan "Kaydı sil" ile sıfırlayabilirsiniz.`;
+  }
+  updateButtons(); render(true);
+})();
+</script>
+</body>
+</html>
